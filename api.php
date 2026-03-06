@@ -113,6 +113,135 @@ function get_current_user_id() {
     return $_SESSION['user_id'] ?? null;
 }
 
+function haversine_distance_meters($lat1, $lon1, $lat2, $lon2) {
+    $earth_radius = 6371000;
+    $d_lat = deg2rad($lat2 - $lat1);
+    $d_lon = deg2rad($lon2 - $lon1);
+
+    $a = sin($d_lat / 2) * sin($d_lat / 2) +
+         cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+         sin($d_lon / 2) * sin($d_lon / 2);
+
+    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+    return $earth_radius * $c;
+}
+
+function get_location_policy_for_user($db, $user_id) {
+    $policy = [
+        'global_enabled' => 0,
+        'office_latitude' => null,
+        'office_longitude' => null,
+        'office_radius_meters' => 150,
+        'half_day_first_half_cutoff_ist' => '14:00:00',
+        'half_day_second_half_cutoff_ist' => '18:30:00',
+        'user_enabled' => 0,
+        'background_tracking_required' => 1
+    ];
+
+    $stmt_settings = $db->prepare("SELECT global_enabled, office_latitude, office_longitude, office_radius_meters, half_day_first_half_cutoff_ist, half_day_second_half_cutoff_ist FROM location_attendance_settings WHERE id = 1 LIMIT 1");
+    if ($stmt_settings) {
+        $stmt_settings->execute();
+        $result = $stmt_settings->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $policy = array_merge($policy, $row);
+        }
+        $stmt_settings->close();
+    }
+
+    $stmt_user = $db->prepare("SELECT location_attendance_enabled, background_tracking_required FROM user_location_prefs WHERE user_id = ? LIMIT 1");
+    if ($stmt_user) {
+        $stmt_user->bind_param("s", $user_id);
+        $stmt_user->execute();
+        $result = $stmt_user->get_result();
+        if ($row = $result->fetch_assoc()) {
+            $policy['user_enabled'] = intval($row['location_attendance_enabled']);
+            $policy['background_tracking_required'] = intval($row['background_tracking_required']);
+        }
+        $stmt_user->close();
+    }
+
+    $policy['global_enabled'] = intval($policy['global_enabled']);
+    $policy['office_radius_meters'] = intval($policy['office_radius_meters']);
+    return $policy;
+}
+
+function get_today_attendance_row($db, $user_id, $date) {
+    $stmt = $db->prepare("SELECT id, status, login_time, logout_time, breaks FROM attendance WHERE user_id = ? AND attendance_date = ? LIMIT 1");
+    if (!$stmt) return null;
+    $stmt->bind_param("ss", $user_id, $date);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
+function parse_breaks_array($breaks_json) {
+    if (!$breaks_json || $breaks_json === 'null') {
+        return [];
+    }
+    $parsed = json_decode($breaks_json, true);
+    return is_array($parsed) ? $parsed : [];
+}
+
+function is_break_open($breaks) {
+    if (empty($breaks)) return false;
+    $last_break = end($breaks);
+    return !empty($last_break['startTime']) && empty($last_break['endTime']);
+}
+
+function apply_auto_half_day_status($db, $user_id, $attendance_date) {
+    $row = get_today_attendance_row($db, $user_id, $attendance_date);
+    if (!$row || empty($row['login_time']) || empty($row['logout_time'])) {
+        return;
+    }
+
+    $status_now = strtolower(trim($row['status'] ?? 'present'));
+    if ($status_now !== 'present' && strpos($status_now, 'half day') === false) {
+        return;
+    }
+
+    $policy = get_location_policy_for_user($db, $user_id);
+    $first_half_cutoff = $policy['half_day_first_half_cutoff_ist'] ?? '14:00:00';
+    $second_half_cutoff = $policy['half_day_second_half_cutoff_ist'] ?? '18:30:00';
+
+    $login = new DateTime($row['login_time']);
+    $logout = new DateTime($row['logout_time']);
+
+    $cutoff_first = new DateTime($attendance_date . ' ' . $first_half_cutoff);
+    $cutoff_second = new DateTime($attendance_date . ' ' . $second_half_cutoff);
+
+    $new_status = 'Present';
+    if ($login >= $cutoff_second) {
+        $new_status = 'Half Day - First Half';
+    } elseif ($logout <= $cutoff_first) {
+        $new_status = 'Half Day - Second Half';
+    }
+
+    if ($new_status !== $row['status']) {
+        $stmt = $db->prepare("UPDATE attendance SET status = ? WHERE id = ?");
+        if ($stmt) {
+            $stmt->bind_param("si", $new_status, $row['id']);
+            $stmt->execute();
+            $stmt->close();
+        }
+    }
+}
+
+function get_previous_inside_state($db, $user_id) {
+    $stmt = $db->prepare("SELECT meta_json FROM location_events WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+    if (!$stmt) return null;
+    $stmt->bind_param("s", $user_id);
+    $stmt->execute();
+    $stmt->bind_result($meta_json);
+    $found = $stmt->fetch();
+    $stmt->close();
+    if (!$found || !$meta_json) return null;
+    $meta = json_decode($meta_json, true);
+    if (!is_array($meta) || !array_key_exists('inside_geofence', $meta)) return null;
+    return !empty($meta['inside_geofence']);
+}
+
 // --- FULLY IMPLEMENTED send_leave_notification (MODIFIED TO ACCEPT BALANCE) ---
 function send_leave_notification($db, $request_id, $user_id, $full_name, $start_date, $end_date, $type, $reason, $leave_balance) {
     // 1. Generate unique token for email link
@@ -329,7 +458,10 @@ switch ($action) {
                 $stmt = $db->prepare("UPDATE attendance SET logout_time = ? WHERE user_id = ? AND attendance_date = ?");
                 if (!$stmt) send_json_response(false, "SQL Error: " . $db->error);
                 $stmt->bind_param("sss", $now, $user_id, $today_str);
-                if ($stmt->execute()) send_json_response(true, "Clocked out successfully at " . date('h:i A'));
+                if ($stmt->execute()) {
+                    apply_auto_half_day_status($db, $user_id, $today_str);
+                    send_json_response(true, "Clocked out successfully at " . date('h:i A'));
+                }
                 else send_json_response(false, "Error clocking out: " . $stmt->error);
                 $stmt->close();
                 break;
@@ -374,6 +506,123 @@ switch ($action) {
                     send_json_response(false, "Error updating break status.");
                 }
                 $update_stmt->close();
+                break;
+
+            case 'get_location_policy':
+                $policy = get_location_policy_for_user($db, $user_id);
+                send_json_response(true, 'Location policy fetched.', $policy);
+                break;
+
+            case 'location_event':
+                $latitude = isset($request_body['latitude']) ? floatval($request_body['latitude']) : null;
+                $longitude = isset($request_body['longitude']) ? floatval($request_body['longitude']) : null;
+                $accuracy_m = isset($request_body['accuracy_m']) ? floatval($request_body['accuracy_m']) : null;
+                $device_time = $request_body['device_time'] ?? null;
+                $is_background = !empty($request_body['is_background']);
+
+                if ($latitude === null || $longitude === null || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+                    send_json_response(false, 'Valid latitude and longitude are required.');
+                }
+
+                $policy = get_location_policy_for_user($db, $user_id);
+                if (intval($policy['global_enabled']) !== 1 || intval($policy['user_enabled']) !== 1) {
+                    send_json_response(true, 'Location attendance is disabled.', [
+                        'tracking_enabled' => false,
+                        'action_taken' => 'none'
+                    ]);
+                }
+
+                if (!is_numeric($policy['office_latitude']) || !is_numeric($policy['office_longitude'])) {
+                    send_json_response(false, 'Office geofence coordinates are not configured by admin.');
+                }
+
+                $distance = haversine_distance_meters(
+                    floatval($latitude),
+                    floatval($longitude),
+                    floatval($policy['office_latitude']),
+                    floatval($policy['office_longitude'])
+                );
+                $inside_geofence = $distance <= intval($policy['office_radius_meters']);
+
+                $prev_inside = get_previous_inside_state($db, $user_id);
+                $event_type = 'heartbeat';
+                if ($prev_inside === null) {
+                    $event_type = $inside_geofence ? 'enter_geofence' : 'exit_geofence';
+                } elseif ($prev_inside === false && $inside_geofence === true) {
+                    $event_type = 'enter_geofence';
+                } elseif ($prev_inside === true && $inside_geofence === false) {
+                    $event_type = 'exit_geofence';
+                }
+
+                $today = date('Y-m-d');
+                $now = date('Y-m-d H:i:s');
+                $action_taken = 'none';
+                $attendance_row = get_today_attendance_row($db, $user_id, $today);
+
+                if ($event_type === 'enter_geofence') {
+                    if (!$attendance_row || empty($attendance_row['login_time']) || !empty($attendance_row['logout_time'])) {
+                        $stmt_clock_in = $db->prepare("INSERT INTO attendance (user_id, attendance_date, login_time, status, breaks, logout_time) VALUES (?, ?, ?, 'Present', '[]', NULL) ON DUPLICATE KEY UPDATE login_time = VALUES(login_time), status = 'Present', breaks = '[]', logout_time = NULL");
+                        if ($stmt_clock_in) {
+                            $stmt_clock_in->bind_param("sss", $user_id, $today, $now);
+                            $stmt_clock_in->execute();
+                            $stmt_clock_in->close();
+                            $action_taken = 'auto_clock_in';
+                            $attendance_row = get_today_attendance_row($db, $user_id, $today);
+                        }
+                    } elseif (empty($attendance_row['logout_time'])) {
+                        $breaks = parse_breaks_array($attendance_row['breaks'] ?? '[]');
+                        if (is_break_open($breaks)) {
+                            $breaks[key($breaks)]['endTime'] = $now;
+                            $new_breaks_json = json_encode($breaks);
+                            $stmt_break_end = $db->prepare("UPDATE attendance SET breaks = ? WHERE id = ?");
+                            if ($stmt_break_end) {
+                                $stmt_break_end->bind_param("si", $new_breaks_json, $attendance_row['id']);
+                                $stmt_break_end->execute();
+                                $stmt_break_end->close();
+                                $action_taken = 'auto_break_end';
+                            }
+                        }
+                    }
+                }
+
+                if ($event_type === 'exit_geofence' && $attendance_row && !empty($attendance_row['login_time']) && empty($attendance_row['logout_time'])) {
+                    $breaks = parse_breaks_array($attendance_row['breaks'] ?? '[]');
+                    if (!is_break_open($breaks)) {
+                        $breaks[] = ['startTime' => $now, 'endTime' => null];
+                        $new_breaks_json = json_encode($breaks);
+                        $stmt_break_start = $db->prepare("UPDATE attendance SET breaks = ? WHERE id = ?");
+                        if ($stmt_break_start) {
+                            $stmt_break_start->bind_param("si", $new_breaks_json, $attendance_row['id']);
+                            $stmt_break_start->execute();
+                            $stmt_break_start->close();
+                            $action_taken = 'auto_break_start';
+                        }
+                    }
+                }
+
+                $meta = [
+                    'inside_geofence' => $inside_geofence,
+                    'is_background' => $is_background,
+                    'office_radius_meters' => intval($policy['office_radius_meters'])
+                ];
+                $meta_json = json_encode($meta);
+                $stmt_event = $db->prepare("INSERT INTO location_events (user_id, event_type, latitude, longitude, accuracy_m, distance_from_office_m, device_time, server_time, action_taken, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                if (!$stmt_event) {
+                    send_json_response(false, 'Failed to record location event: ' . $db->error);
+                }
+                $stmt_event->bind_param("ssdddsssss", $user_id, $event_type, $latitude, $longitude, $accuracy_m, $distance, $device_time, $now, $action_taken, $meta_json);
+                if (!$stmt_event->execute()) {
+                    send_json_response(false, 'Failed to record location event: ' . $stmt_event->error);
+                }
+                $stmt_event->close();
+
+                send_json_response(true, 'Location event processed.', [
+                    'tracking_enabled' => true,
+                    'event_type' => $event_type,
+                    'action_taken' => $action_taken,
+                    'inside_geofence' => $inside_geofence,
+                    'distance_from_office_m' => round($distance, 2)
+                ]);
                 break;
             
             case 'request_leave':
