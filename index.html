@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Attendance Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); padding: 1.5rem; }
+        /* MODIFIED BTN STYLING */
+        .btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; transition: all 0.3s; text-align: center; cursor: pointer; }
+        .btn-primary { background-color: #4f46e5; color: white; }
+        .btn-primary:hover { background-color: #4338ca; }
+        .btn-secondary { background-color: #6b7280; color: white; }
+        .btn-secondary:hover { background-color: #4b5563; }
+        .btn-success { background-color: #16a34a; color: white; }
+        .btn-warning { background-color: #f59e0b; color: white; }
+        .btn-danger { background-color: #dc2626; color: white; }
+
+        /* MODIFIED NAV BUTTON STYLING (Bigger and Rounded) */
+        .nav-btn { 
+            background-color: #e5e7eb; 
+            color: #374151; 
+            padding: 0.75rem 1.5rem; /* Bigger padding */
+            border-radius: 9999px; /* Fully rounded */
+            font-weight: 600; 
+            transition: all 0.3s;
+        }
+        .nav-btn.active { 
+            background-color: #4f46e5; 
+            color: white; 
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); 
+        }
+        
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 50; overflow-y: auto; padding: 1rem; }
+        .modal-content { background-color: white; padding: 2rem; border-radius: 0.75rem; width: 95%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 8px; }
+        .hidden { display: none; }
+        /* Notification Dot Style */
+        .new-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ef4444; 
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        /* Sticky header for audit trail */
+        #leave-adjustment-history-body-container thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="app" class="mx-auto px-4 sm:px-6 lg:px-8 py-8" style="display: none;">
+        <header class="mb-8 flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-4xl font-bold text-gray-800">Attendance Dashboard</h1>
+                <p class="text-gray-500 mt-1">Developed By Prashant Kumar</p>
+            </div>
+            <div>
+                <button id="open-leave-modal-btn" class="btn btn-primary">Request Leave</button>
+            </div>
+        </header>
+        <nav class="mb-8 flex flex-wrap gap-3">
+            <button id="home-btn" class="nav-btn active">Home</button>
+            <button id="insights-btn" class="nav-btn">Insights</button>
+            <button id="reports-btn" class="nav-btn">Reports</button>
+            <button id="leaves-btn" class="nav-btn">Leaves <span id="notification-dot" class="new-dot hidden"></span></button>
+        </nav>
+        <div id="user-info" class="mb-6 text-sm text-gray-600 bg-gray-200 p-3 rounded-md flex justify-between items-center">
+            <span>Welcome, <span id="full_name" class="font-semibold">User</span>!</span>
+            <button id="logout-btn" class="text-sm text-indigo-600 hover:underline">Logout</button>
+        </div>
+
+        <div id="content-area">
+            <div id="home-page">
+                 <div class="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                    <div class="lg:col-span-1 xl:col-span-1 flex flex-col gap-6">
+                        <main class="card">
+                            <h2 class="text-xl font-semibold text-gray-700">Today's Status</h2>
+                            <p id="current-status" class="text-3xl font-bold text-indigo-600 mt-2">Logged Out</p>
+                            <p id="live-timer" class="text-gray-500 mt-1 h-6">&nbsp;</p>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                                <button id="login-logout-btn" class="btn btn-primary">Log In</button>
+                                <button id="break-btn" class="btn btn-secondary" disabled>Start Break</button>
+                            </div>
+                        </main>
+                        <div class="card">
+                            <h2 class="text-xl font-semibold text-gray-700">Total Leaves Available</h2>
+                            <p id="total-leaves-balance" class="text-3xl font-bold text-gray-800 mt-2">0</p>
+                            <p class="text-gray-500 mt-1">Includes carry-over & earned</p>
+                        </div>
+                         <section>
+                            <h2 class="text-2xl font-bold text-gray-800 mb-4">Summaries</h2>
+                            <div class="space-y-6">
+                                <div class="card">
+                                    <h3 class="font-semibold text-lg text-gray-700">Today's Summary</h3>
+                                    <div class="mt-4 space-y-2 text-sm">
+                                        <div class="flex justify-between"><span>Work Hours:</span> <span id="today-summary-work" class="font-medium">--:--</span></div>
+                                        <div class="flex justify-between"><span>Break Taken:</span> <span id="today-summary-break-taken" class="font-medium">0m</span></div>
+                                        <div class="flex justify-between"><span>Break Rem.:</span> <span id="today-summary-break-rem" class="font-medium">0m</span></div>
+                                    </div>
+                                </div>
+                                <div class="card">
+                                    <h3 class="font-semibold text-lg text-gray-700">This Week's Summary</h3>
+                                    <div class="mt-4 space-y-2 text-sm">
+                                        <div class="flex justify-between"><span>Work Hours:</span> <span id="week-summary-work" class="font-medium">--:--</span></div>
+                                        <div class="flex justify-between"><span>Break Taken:</span> <span id="week-summary-break-taken" class="font-medium">0m</span></div>
+                                        <div class="flex justify-between"><span>Break Rem.:</span> <span id="week-summary-break-rem" class="font-medium">0m</span></div>
+                                    </div>
+                                </div>
+                                <div class="card">
+                                    <h3 class="font-semibold text-lg text-gray-700">This Month's Summary</h3>
+                                    <div class="mt-4 space-y-2 text-sm">
+                                        <div class="flex justify-between"><span>Work Hours:</span> <span id="month-summary-work" class="font-medium">--:--</span></div>
+                                        <div class="flex justify-between"><span>Break Taken:</span> <span id="month-summary-break-taken" class="font-medium">0m</span></div>
+                                        <div class="flex justify-between"><span>Break Rem.:</span> <span id="month-summary-break-rem" class="font-medium">0m</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="lg:col-span-2 xl:col-span-3">
+                         <section class="card h-full">
+                             <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                                <h2 class="text-xl font-semibold text-gray-700">Attendance History</h2>
+                                <div class="flex gap-2">
+                                    <select id="year-filter" class="rounded-md border-gray-300 shadow-sm p-2"></select>
+                                    <select id="month-filter" class="rounded-md border-gray-300 shadow-sm p-2"></select>
+                                </div>
+                             </div>
+                             <div class="overflow-x-auto">
+                                <table id="history-table" class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">In Time</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Out Time</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Work Duration</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Break Taken</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="history-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                                </table>
+                             </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+            <div id="insights-page" class="hidden">
+                 <section class="card">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6">Attendance Insights</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">This Month's Status</h4>
+                            <canvas id="monthly-summary-chart"></canvas>
+                        </div>
+                        <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">Leave Analysis</h4>
+                            <canvas id="leave-analysis-chart"></canvas>
+                        </div>
+                        <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">Daily Performance</h4>
+                            <canvas id="daily-performance-chart"></canvas>
+                        </div>
+                        <div class="card md:col-span-2 xl:col-span-3">
+                            <h4 class="font-semibold mb-2 text-center">Weekly Hours Trend (Last 8 Weeks)</h4>
+                            <canvas id="weekly-hours-chart"></canvas>
+                        </div>
+                         <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">Average Login Time</h4>
+                             <canvas id="avg-login-chart"></canvas>
+                        </div>
+                         <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">Average Logout Time</h4>
+                             <canvas id="avg-logout-chart"></canvas>
+                        </div>
+                         <div class="card">
+                            <h4 class="font-semibold mb-2 text-center">Break Usage (This Month)</h4>
+                            <canvas id="break-usage-chart"></canvas>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div id="reports-page" class="hidden">
+                 <section class="card">
+                         <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                            <h2 class="text-2xl font-bold text-gray-800">Reports</h2>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <div id="report-view-buttons" class="flex items-center gap-1 bg-gray-200 p-1 rounded-lg">
+                                    <button data-view="daily" class="report-view-btn px-3 py-1 text-sm rounded-md active">Daily</button>
+                                    <button data-view="weekly" class="report-view-btn px-3 py-1 text-sm rounded-md">Weekly</button>
+                                    <button data-view="monthly" class="report-view-btn px-3 py-1 text-sm rounded-md">Monthly</button>
+                                </div>
+                                <select id="year-filter-report" class="rounded-md border-gray-300 shadow-sm p-2"></select>
+                                <select id="month-filter-report" class="rounded-md border-gray-300 shadow-sm p-2"></select>
+                                <button id="export-btn" class="btn btn-primary">Export to XLSX</button>
+                            </div>
+                         </div>
+                         <div id="report-content" class="overflow-x-auto"></div>
+                    </section>
+            </div>
+            <div id="leaves-page" class="hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <section class="card lg:col-span-2">
+                        <h2 class="text-xl font-semibold text-gray-700 mb-4">My Leave Requests</h2>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Admin Note</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leave-requests-table-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                    
+                    <section class="card lg:col-span-1">
+                        <h2 class="text-xl font-semibold text-gray-700 mb-4">Leave Balance Record</h2>
+                        <div class="bg-indigo-50 p-3 rounded-lg flex justify-between items-center mb-4">
+                            <span class="font-medium text-gray-800">Current Balance:</span>
+                            <span class="text-2xl font-bold text-indigo-600" id="leaves-available-summary">0.0 Days</span>
+                        </div>
+                        <div id="leave-adjustment-history-body-container" class="overflow-y-auto max-h-96">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Days</th>
+                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Note / Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leave-adjustment-history-body" class="bg-white divide-y divide-gray-200">
+                                    </tbody>
+                            </table
+                        ></div>
+                    </section>
+                    </div>
+            </div>
+            </div>
+    </div>
+
+    <div id="login-modal" class="modal-backdrop">
+        <div class="modal-content">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 flex items-center">
+                Login Required
+                <span id="db-status-dot" class="status-dot ml-2 bg-gray-400" title="Database Connection Status"></span>
+            </h3>
+            <p class="text-sm text-gray-500 mt-2">Please enter your credentials to continue.</p>
+            <div class="mt-4 space-y-4">
+                <div>
+                    <label for="user-id-input" class="block text-sm font-medium text-gray-700">User ID</label>
+                    <input type="text" id="user-id-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+                </div>
+                <div>
+                    <label for="password-input" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="password-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+                </div>
+                 <p id="login-error" class="text-sm text-red-600"></p>
+            </div>
+            <div class="mt-6 text-right">
+                <button id="login-btn" class="btn btn-primary">Login</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="message-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 id="modal-title" class="text-lg font-medium leading-6 text-gray-900"></h3>
+            <div class="mt-2"><p id="modal-message" class="text-sm text-gray-500"></p></div>
+            <div class="mt-4 text-right">
+                <button id="modal-close-btn" type="button" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+    <div id="add-leave-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Request Leave</h3>
+            <div class="mt-4 space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="leave-start-date-input" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="leave-start-date-input" class="mt-1 block w-full rounded-md border-gray-300 p-2">
+                    </div>
+                    <div>
+                        <label for="leave-end-date-input" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="leave-end-date-input" class="mt-1 block w-full rounded-md border-gray-300 p-2">
+                    </div>
+                </div>
+                <div>
+                    <label for="leave-type-input-modal" class="block text-sm font-medium text-gray-700">Leave Type</label>
+                    <select id="leave-type-input-modal" class="mt-1 block w-full rounded-md border-gray-300 p-2">
+                        <option value="Paid Leave">Paid Leave (Full Day)</option>
+                        <option value="Unpaid Leave">Unpaid Leave (Full Day)</option>
+                        <option value="Paid Half Day (First Half)">Paid Half Day (First Half)</option>
+                        <option value="Paid Half Day (Second Half)">Paid Half Day (Second Half)</option>
+                        <option value="Unpaid Half Day (First Half)">Unpaid Half Day (First Half)</option>
+                        <option value="Unpaid Half Day (Second Half)">Unpaid Half Day (Second Half)</option>
+                        <option value="Sick Leave">Sick Leave</option>
+                    </select>
+                </div>
+                 <div>
+                    <label for="leave-reason-input" class="block text-sm font-medium text-gray-700">Reason (Optional)</label>
+                    <textarea id="leave-reason-input" rows="3" class="mt-1 block w-full rounded-md border-gray-300 p-2"></textarea>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button id="leave-modal-close-btn" type="button" class="btn btn-secondary bg-gray-200 text-gray-700 hover:bg-gray-300">Cancel</button>
+                <button id="submit-leave-request-btn" class="btn btn-primary">Submit Request</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="leave-details-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Leave Decision Details (Day-by-Day)</h3>
+            <div id="leave-details-reason" class="mt-2 text-sm text-gray-600 bg-gray-100 p-3 rounded-md"></div>
+            <div id="leave-details-days-container" class="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2">
+                <p class="text-sm text-gray-500">Loading details...</p>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button id="leave-details-close-btn" type="button" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300">Close</button>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/relativeTime.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/duration.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/weekOfYear.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/isoWeek.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/utc.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/timezone.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/isSameOrBefore.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <script>
+        const API_URL = 'api.php'; 
+        
+        dayjs.extend(dayjs_plugin_relativeTime);
+        dayjs.extend(dayjs_plugin_duration);
+        dayjs.extend(dayjs_plugin_weekOfYear);
+        dayjs.extend(dayjs_plugin_isoWeek);
+        dayjs.extend(dayjs_plugin_utc);
+        dayjs.extend(dayjs_plugin_timezone);
+        dayjs.extend(dayjs_plugin_isSameOrBefore);
+
+        const appTimezone = 'Asia/Kolkata';
+        
+        let liveInterval = null, allAttendanceData = {}, userProfile = {}, charts = {}, currentReportView = 'daily', myLeaveRequests = [];
+
+        const DOMElements = {
+            app: document.getElementById('app'),
+            loginModal: document.getElementById('login-modal'),
+            loginBtn: document.getElementById('login-btn'),
+            userIdInput: document.getElementById('user-id-input'),
+            passwordInput: document.getElementById('password-input'),
+            loginError: document.getElementById('login-error'),
+            dbStatusDot: document.getElementById('db-status-dot'),
+            logoutBtn: document.getElementById('logout-btn'),
+            fullNameEl: document.getElementById('full_name'),
+            loginLogoutBtn: document.getElementById('login-logout-btn'),
+            breakBtn: document.getElementById('break-btn'),
+            openLeaveModalBtn: document.getElementById('open-leave-modal-btn'),
+            addLeaveBtn: document.getElementById('submit-leave-request-btn'),
+            currentStatusEl: document.getElementById('current-status'),
+            liveTimerEl: document.getElementById('live-timer'),
+            totalLeavesBalanceEl: document.getElementById('total-leaves-balance'),
+            historyTableBodyEl: document.getElementById('history-table-body'),
+            messageModal: document.getElementById('message-modal'),
+            modalTitle: document.getElementById('modal-title'),
+            modalMessage: document.getElementById('modal-message'),
+            modalCloseBtn: document.getElementById('modal-close-btn'),
+            addLeaveModal: document.getElementById('add-leave-modal'),
+            leaveModalCloseBtn: document.getElementById('leave-modal-close-btn'),
+            leaveStartDateInput: document.getElementById('leave-start-date-input'),
+            leaveEndDateInput: document.getElementById('leave-end-date-input'),
+            leaveTypeInput: document.getElementById('leave-type-input-modal'),
+            leaveReasonInput: document.getElementById('leave-reason-input'),
+            leaveRequestsTableBody: document.getElementById('leave-requests-table-body'),
+            leaveAdjustmentHistoryBody: document.getElementById('leave-adjustment-history-body'), 
+            leavesAvailableSummary: document.getElementById('leaves-available-summary'), 
+            notificationDot: document.getElementById('notification-dot'), 
+            yearFilter: document.getElementById('year-filter'),
+            monthFilter: document.getElementById('month-filter'),
+            yearFilterReport: document.getElementById('year-filter-report'),
+            monthFilterReport: document.getElementById('month-filter-report'),
+            homeBtn: document.getElementById('home-btn'),
+            insightsBtn: document.getElementById('insights-btn'),
+            reportsBtn: document.getElementById('reports-btn'),
+            leavesBtn: document.getElementById('leaves-btn'),
+            homePage: document.getElementById('home-page'),
+            insightsPage: document.getElementById('insights-page'),
+            reportsPage: document.getElementById('reports-page'),
+            leavesPage: document.getElementById('leaves-page'),
+            exportBtn: document.getElementById('export-btn'),
+            reportContentEl: document.getElementById('report-content'),
+            reportViewButtons: document.getElementById('report-view-buttons'),
+            todaySummary: { work: document.getElementById('today-summary-work'), breakTaken: document.getElementById('today-summary-break-taken'), breakRem: document.getElementById('today-summary-break-rem'), },
+            weekSummary: { work: document.getElementById('week-summary-work'), breakTaken: document.getElementById('week-summary-break-taken'), breakRem: document.getElementById('week-summary-break-rem'), },
+            monthSummary: { work: document.getElementById('month-summary-work'), breakTaken: document.getElementById('month-summary-break-taken'), breakRem: document.getElementById('month-summary-break-rem'), }
+        };
+
+        function showModal(modalId, title, message) {
+            const modal = document.getElementById(modalId);
+            if (modalId === 'message-modal') {
+                modal.querySelector('#modal-title').textContent = title;
+                modal.querySelector('#modal-message').textContent = message;
+            }
+            modal.classList.remove('hidden');
+        }
+        function hideModal(modalId) { document.getElementById(modalId).classList.add('hidden'); }
+        
+        async function switchPage(pageName) {
+            ['home', 'insights', 'reports', 'leaves'].forEach(page => {
+                DOMElements[`${page}Page`].classList.add('hidden');
+                DOMElements[`${page}Btn`].classList.remove('active');
+            });
+            DOMElements[`${pageName}Page`].classList.remove('hidden');
+            DOMElements[`${pageName}Btn`].classList.add('active');
+            
+            if (pageName === 'leaves') {
+                renderLeaveHistorySection();
+                if (userProfile.unread_notifications) {
+                    await postData('clear_leave_notification');
+                    DOMElements.notificationDot.classList.add('hidden');
+                    userProfile.unread_notifications = false; 
+                }
+            } else if (pageName === 'insights') {
+                renderCharts();
+            } else if (pageName === 'reports') {
+                renderReport();
+            }
+        }
+
+        function formatTotalDuration(ms) {
+            if (ms <= 0) return '00:00';
+            const duration = dayjs.duration(ms);
+            const hours = String(Math.floor(duration.asHours())).padStart(2, '0');
+            const minutes = String(duration.minutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+        function isWorkingDay(date) {
+            const dayOfWeek = date.day();
+            if (dayOfWeek === 0) return false;
+            if (dayOfWeek === 6) {
+                const startOfMonth = date.startOf('month');
+                let saturdays = 0;
+                for(let i=1; i <= date.date(); i++) {
+                    if(startOfMonth.add(i-1, 'day').day() === 6) saturdays++;
+                }
+                return [1, 3, 5].includes(saturdays);
+            }
+            return true;
+        }
+
+        function calculateAllocatedBreakMins(date) {
+            if (!isWorkingDay(date)) return 0;
+            return date.day() === 6 ? 0 : 60;
+        }
+        
+        function calculateWorkDuration(dayData, isLive = false) {
+            if (!dayData || !dayData.login_time) return 0;
+            const loginTime = dayjs.tz(dayData.login_time, "YYYY-MM-DD HH:mm:ss", appTimezone);
+            const endTime = isLive 
+                ? dayjs().tz(appTimezone) 
+                : (dayData.logout_time ? dayjs.tz(dayData.logout_time, "YYYY-MM-DD HH:mm:ss", appTimezone) : null);
+            if (!endTime) return 0;
+            const breakMs = calculateTotalBreakDuration(dayData);
+            return endTime.diff(loginTime) - breakMs;
+        }
+
+        function calculateTotalBreakDuration(dayData) {
+            if (!dayData || !dayData.breaks) return 0;
+            let breaks = [];
+            if (typeof dayData.breaks === 'string' && dayData.breaks) {
+                try { breaks = JSON.parse(dayData.breaks); } catch(e) { breaks = []; }
+            } else if (Array.isArray(dayData.breaks)) {
+                breaks = dayData.breaks;
+            }
+
+            return breaks.reduce((total, br) => {
+                if (br.startTime && br.endTime) {
+                    const breakStart = dayjs.tz(br.startTime, "YYYY-MM-DD HH:mm:ss", appTimezone);
+                    const breakEnd = dayjs.tz(br.endTime, "YYYY-MM-DD HH:mm:ss", appTimezone);
+                    return total + breakEnd.diff(breakStart);
+                }
+                return total;
+            }, 0);
+        }
+        
+        function updateUI() {
+            const todayStr = dayjs().format('YYYY-MM-DD');
+            const todayData = allAttendanceData[todayStr];
+            clearInterval(liveInterval);
+            DOMElements.liveTimerEl.innerHTML = '&nbsp;';
+            let isLoggedIn = false, isOnBreak = false;
+            if (todayData && todayData.login_time && !todayData.logout_time) {
+                isLoggedIn = true;
+                const breaks = Array.isArray(todayData.breaks) ? todayData.breaks : [];
+                const lastBreak = breaks.slice(-1)[0];
+                isOnBreak = lastBreak && lastBreak.startTime && !lastBreak.endTime;
+                updateLiveTimer(todayData);
+            }
+            if (isLoggedIn) {
+                DOMElements.currentStatusEl.textContent = isOnBreak ? 'On Break' : 'Logged In';
+                DOMElements.currentStatusEl.className = `text-3xl font-bold mt-2 ${isOnBreak ? 'text-amber-600' : 'text-green-600'}`;
+                DOMElements.loginLogoutBtn.textContent = 'Log Out';
+                DOMElements.loginLogoutBtn.className = 'btn btn-danger';
+                DOMElements.breakBtn.disabled = false;
+                DOMElements.breakBtn.textContent = isOnBreak ? 'End Break' : 'Start Break';
+                DOMElements.breakBtn.className = `btn ${isOnBreak ? 'btn-success' : 'btn-warning'}`;
+            } else {
+                DOMElements.currentStatusEl.textContent = 'Logged Out';
+                DOMElements.currentStatusEl.className = 'text-3xl font-bold mt-2 text-indigo-600';
+                DOMElements.loginLogoutBtn.textContent = 'Log In';
+                DOMElements.loginLogoutBtn.className = 'btn btn-primary';
+                DOMElements.breakBtn.disabled = true;
+                DOMElements.breakBtn.textContent = 'Start Break';
+                DOMElements.breakBtn.className = 'btn btn-secondary';
+            }
+            DOMElements.totalLeavesBalanceEl.textContent = userProfile.leave_balance?.toFixed(1) || '0.0';
+            
+            if (userProfile.unread_notifications) {
+                 DOMElements.notificationDot.classList.remove('hidden');
+            } else {
+                 DOMElements.notificationDot.classList.add('hidden');
+            }
+
+            populateFilters();
+            renderHistory();
+            renderSummaries();
+        }
+
+        function updateLiveTimer(todayData) {
+            liveInterval = setInterval(() => {
+                if (!todayData || !todayData.login_time) { clearInterval(liveInterval); return; }
+                const netDurationMs = calculateWorkDuration(todayData, true);
+                
+                if (netDurationMs < 0) {
+                     DOMElements.liveTimerEl.textContent = `Working for: 00:00:00`;
+                     DOMElements.todaySummary.work.textContent = '00:00';
+                     return;
+                }
+
+                const netDuration = dayjs.duration(netDurationMs);
+                let timerText = `Working for: ${netDuration.format('HH:mm:ss')}`;
+                const breaks = Array.isArray(todayData.breaks) ? todayData.breaks : [];
+                const lastBreak = breaks.slice(-1)[0];
+                if (lastBreak && lastBreak.startTime && !lastBreak.endTime) {
+                    const breakStartTime = dayjs.tz(lastBreak.startTime, "YYYY-MM-DD HH:mm:ss", appTimezone);
+                    const nowInAppZone = dayjs().tz(appTimezone);
+                    timerText = `On break for: ${dayjs.duration(nowInAppZone.diff(breakStartTime)).format('HH:mm:ss')}`;
+                }
+                DOMElements.liveTimerEl.textContent = timerText;
+                DOMElements.todaySummary.work.textContent = formatTotalDuration(netDurationMs);
+            }, 1000);
+        }
+
+        function renderSummaries() {
+            const today = dayjs();
+            const todayStr = today.format('YYYY-MM-DD');
+            const todayData = allAttendanceData[todayStr];
+            let todayWorkMs = 0;
+            if (todayData) {
+                const isLoggedIn = todayData.login_time && !todayData.logout_time;
+                todayWorkMs = calculateWorkDuration(todayData, isLoggedIn);
+            }
+            const todayBreakMins = todayData ? Math.floor(calculateTotalBreakDuration(todayData) / 60000) : 0;
+            const todayAllocatedMins = calculateAllocatedBreakMins(today);
+            const todayRemMins = todayAllocatedMins - todayBreakMins;
+            DOMElements.todaySummary.work.textContent = formatTotalDuration(todayWorkMs > 0 ? todayWorkMs : 0);
+            DOMElements.todaySummary.breakTaken.textContent = `${todayBreakMins}m / ${todayAllocatedMins}m`;
+            DOMElements.todaySummary.breakRem.textContent = `${todayRemMins}m`;
+            const startOfWeek = today.startOf('isoWeek');
+            const endOfWeek = today.endOf('isoWeek');
+            const startOfMonth = today.startOf('month');
+            const endOfMonth = today.endOf('month');
+            let weekWorkMs = 0, weekTakenMins = 0, weekAllocatedMins = 0;
+            let monthWorkMs = 0, monthTakenMins = 0, monthAllocatedMins = 0;
+            Object.keys(allAttendanceData).forEach(dateStr => {
+                const date = dayjs(dateStr);
+                const record = allAttendanceData[dateStr];
+                const workMs = calculateWorkDuration(record);
+                const takenMins = Math.floor(calculateTotalBreakDuration(record) / 60000);
+                const allocatedMins = calculateAllocatedBreakMins(date);
+                if (date.isAfter(startOfWeek.subtract(1, 'day')) && date.isBefore(endOfWeek.add(1, 'day'))) {
+                    if (record.status === 'Present' || record.status?.startsWith('Half Day')) { weekWorkMs += workMs; weekTakenMins += takenMins; }
+                    if (isWorkingDay(date)) weekAllocatedMins += allocatedMins;
+                }
+                if (date.isAfter(startOfMonth.subtract(1, 'day')) && date.isBefore(endOfMonth.add(1, 'day'))) {
+                    if (record.status === 'Present' || record.status?.startsWith('Half Day')) { monthWorkMs += workMs; monthTakenMins += takenMins; }
+                    if (isWorkingDay(date)) monthAllocatedMins += allocatedMins;
+                }
+            });
+            DOMElements.weekSummary.work.textContent = formatTotalDuration(weekWorkMs);
+            DOMElements.weekSummary.breakTaken.textContent = `${weekTakenMins}m / ${weekAllocatedMins}m`;
+            DOMElements.weekSummary.breakRem.textContent = `${weekAllocatedMins - weekTakenMins}m`;
+            DOMElements.monthSummary.work.textContent = formatTotalDuration(monthWorkMs);
+            DOMElements.monthSummary.breakTaken.textContent = `${monthTakenMins}m / ${monthAllocatedMins}m`;
+            DOMElements.monthSummary.breakRem.textContent = `${monthAllocatedMins - monthTakenMins}m`;
+        }
+
+        function populateFilters() {
+            const dates = Object.keys(allAttendanceData);
+            const allYears = dates.length > 0 ? [...new Set(dates.map(d => dayjs(d).year()))] : [dayjs().year()];
+            const years = [...new Set(allYears)].sort((a,b) => b-a);
+            const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            const yearOptions = years.map(y => `<option value="${y}">${y}</option>`).join('');
+            const monthOptions = months.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+            [DOMElements.yearFilter, DOMElements.yearFilterReport].forEach(sel => sel.innerHTML = yearOptions);
+            [DOMElements.monthFilter, DOMElements.monthFilterReport].forEach(sel => sel.innerHTML = monthOptions);
+            const currentYear = dayjs().year();
+            const currentMonth = dayjs().month();
+            [DOMElements.yearFilter, DOMElements.yearFilterReport].forEach(sel => sel.value = currentYear);
+            [DOMElements.monthFilter, DOMElements.monthFilterReport].forEach(sel => sel.value = currentMonth);
+        }
+
+        function renderHistory() {
+             const year = DOMElements.yearFilter.value;
+            const month = DOMElements.monthFilter.value;
+            DOMElements.historyTableBodyEl.innerHTML = '';
+            const filteredKeys = Object.keys(allAttendanceData)
+                .filter(date => dayjs(date).year() == year && dayjs(date).month() == month)
+                .sort((a, b) => a.localeCompare(b));
+            if (filteredKeys.length === 0) {
+                 DOMElements.historyTableBodyEl.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-gray-500">No records for this period.</td></tr>`;
+                 return;
+            }
+            for (const dateStr of filteredKeys) {
+                const date = dayjs(dateStr);
+                const record = allAttendanceData[dateStr];
+                const tr = document.createElement('tr');
+                let statusBadge;
+                const status = record.status || 'N/A';
+                if (status === 'Present') {
+                    statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Present</span>`;
+                } else if (status.includes('Leave')) {
+                    statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">${status}</span>`;
+                } else if (status.startsWith('Half Day')) {
+                    statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">${status}</span>`;
+                } else if (status === 'Absent') {
+                    statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Absent</span>`;
+                } else {
+                    statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">${status}</span>`;
+                }
+                const workDurationMs = calculateWorkDuration(record);
+                const takenBreakMins = Math.floor(calculateTotalBreakDuration(record) / 60000);
+                
+                const loginTimeDisplay = record.login_time ? dayjs.tz(record.login_time, "YYYY-MM-DD HH:mm:ss", appTimezone).format('h:mm A') : '---';
+                const logoutTimeDisplay = record.logout_time ? dayjs.tz(record.logout_time, "YYYY-MM-DD HH:mm:ss", appTimezone).format('h:mm A') : '---';
+
+                tr.innerHTML = `
+                    <td class="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">${date.format('MMM D, YYYY')}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${statusBadge}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${loginTimeDisplay}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${logoutTimeDisplay}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${workDurationMs > 0 ? formatTotalDuration(workDurationMs) : '---'}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">${takenBreakMins}m</td>
+                `;
+                DOMElements.historyTableBodyEl.appendChild(tr);
+            }
+        }
+        
+        // --- MODIFIED renderLeaveHistorySection Function to show accrual per month and sort chronologically DESCENDING ---
+        function renderLeaveHistorySection() {
+            const profile = userProfile;
+            DOMElements.leavesAvailableSummary.textContent = `${profile.leave_balance?.toFixed(1) || '0.0'} Days`;
+            const historyBody = DOMElements.leaveAdjustmentHistoryBody;
+            historyBody.innerHTML = '';
+            
+            if (!profile || !profile.tracked_since) {
+                 historyBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No profile tracking data available.</td></tr>';
+                 return;
+            }
+
+            let allHistory = [];
+            const monthlyAllowance = profile.monthly_leave_allowance || 0;
+            const trackedSinceDate = dayjs(profile.tracked_since);
+            const today = dayjs().startOf('month');
+            
+            // 1. Earned Leaves (Monthly Accrual)
+            if (monthlyAllowance > 0) {
+                let currentMonth = trackedSinceDate.startOf('month');
+                while (currentMonth.isSameOrBefore(today, 'month')) {
+                    allHistory.push({
+                        count: monthlyAllowance,
+                        note: `Monthly Accrual`,
+                        type: 'Monthly Earned',
+                        date: currentMonth.format('YYYY-MM-DD'),
+                        sort_key: currentMonth.format('YYYYMMDD') + '1' 
+                    });
+                    currentMonth = currentMonth.add(1, 'month');
+                }
+            }
+
+            // 2. Initial Leaves (Carry-over)
+            if (profile.initial_leaves && Array.isArray(profile.initial_leaves)) {
+                 profile.initial_leaves.forEach(item => {
+                    const date = trackedSinceDate.format('YYYY-MM-DD');
+                    allHistory.push({
+                        ...item, 
+                        type: 'Initial/Carry-over',
+                        date: date,
+                        sort_key: date.replace(/-/g, '') + '0' 
+                    });
+                 });
+            }
+            
+            // 3. Bonus/Adjusted Leaves (Admin additions/deductions)
+            if (profile.bonus_leaves && Array.isArray(profile.bonus_leaves)) {
+                 profile.bonus_leaves.forEach(item => {
+                    const dateMatch = item.note.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+                    const dateStr = dateMatch ? dateMatch[0] : '2000-01-01 00:00:00';
+                    const date = dayjs(dateStr).format('YYYY-MM-DD');
+                    
+                    allHistory.push({
+                        ...item, 
+                        type: 'Admin Adjustment',
+                        date: date,
+                        sort_key: dayjs(dateStr).format('YYYYMMDDHHmmss') 
+                    });
+                 });
+            }
+            
+            // 4. Used Leaves (Deductions from Approved Paid Leaves)
+            if (profile.paid_leaves_used && Array.isArray(profile.paid_leaves_used)) {
+                profile.paid_leaves_used.forEach(item => {
+                    const date = item.date;
+                    allHistory.push({
+                        ...item,
+                        type: 'Used Leave',
+                        date: date,
+                        sort_key: date.replace(/-/g, '') + '999999' 
+                    });
+                });
+            }
+
+            // Final Sort: Purely by sort_key (YYYYMMDDhhmmss) in DESCENDING order
+            allHistory.sort((a, b) => {
+                // Return 1 to swap (a < b), -1 to keep order (a > b)
+                if (a.sort_key < b.sort_key) return 1;
+                if (a.sort_key > b.sort_key) return -1;
+                return 0;
+            });
+            
+            if (allHistory.length === 0) {
+                 historyBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No recorded balance history.</td></tr>';
+                 return;
+            }
+
+            // Render rows
+            allHistory.forEach(item => {
+                const count = parseFloat(item.count) || 0;
+                let typeClass = 'text-gray-800';
+                
+                if (item.type.includes('Initial') || item.type.includes('Earned') || (item.type === 'Admin Adjustment' && count > 0)) {
+                    typeClass = 'text-green-600';
+                } else if (item.type.includes('Used') || (item.type === 'Admin Adjustment' && count < 0)) {
+                    typeClass = 'text-red-600';
+                }
+
+                const sign = count > 0 ? '+' : '';
+                
+                let dateDisplay = dayjs(item.date).format('MMM D, YYYY');
+                let noteContent = item.note || 'N/A';
+                
+                if (item.type === 'Monthly Earned') {
+                    noteContent = `Monthly Accrual (${dayjs(item.date).format('MMM YYYY')})`;
+                    dateDisplay = ''; // Hide repeated date
+                } else if (item.type === 'Used Leave') {
+                    const statusText = item.note.match(/Used: (.*) \(Date:/)[1];
+                    noteContent = statusText;
+                    dateDisplay = dayjs(item.date).format('MMM D, YYYY');
+                } else if (item.type === 'Admin Adjustment') {
+                    noteContent = item.note.split(' (Adjusted by admin on ')[0];
+                    dateDisplay = dayjs(item.date).format('MMM D, YYYY');
+                } else if (item.type === 'Initial/Carry-over') {
+                    noteContent = item.note;
+                    dateDisplay = dayjs(item.date).format('MMM YYYY');
+                }
+
+                // Concatenate Note/Date for single column display
+                const noteDateColumn = noteContent + (dateDisplay ? ` (${dateDisplay})` : '');
+
+
+                const row = `
+                    <tr>
+                        <td class="px-3 py-2 text-sm whitespace-nowrap font-medium">${item.type}</td>
+                        <td class="px-3 py-2 text-sm font-semibold ${typeClass} whitespace-nowrap">${sign}${count.toFixed(1)}</td>
+                        <td class="px-3 py-2 text-xs text-gray-600" title="${item.note || noteContent}">${noteDateColumn}</td>
+                    </tr>
+                `;
+                historyBody.innerHTML += row;
+            });
+        }
+        // --- END MODIFIED renderLeaveHistorySection Function ---
+        
+        function renderLeaveRequests(requests) {
+            myLeaveRequests = requests;
+            DOMElements.leaveRequestsTableBody.innerHTML = '';
+            if (!requests || requests.length === 0) {
+                DOMElements.leaveRequestsTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-gray-500">You have no leave requests.</td></tr>`;
+                return;
+            }
+            requests.forEach(req => {
+                let statusBadge;
+                switch (req.status) {
+                    case 'approved':
+                        statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Approved</span>`;
+                        break;
+                    case 'rejected':
+                        statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Rejected</span>`;
+                        break;
+                    case 'partially_approved':
+                        statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Partially Approved</span>`;
+                        break;
+                    default: // pending
+                        statusBadge = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Pending</span>`;
+                }
+                
+                let actionButton = '';
+                if (req.status === 'pending') {
+                    actionButton = `<button onclick="handleDeleteLeaveRequest(${req.id})" class="text-red-600 hover:text-red-900 text-xs font-semibold">Delete</button>`;
+                } else if (req.status === 'partially_approved' || req.status === 'rejected' || req.status === 'approved') {
+                    actionButton = `<button onclick="showLeaveDetails(${req.id})" class="text-blue-600 hover:text-blue-900 text-xs font-semibold">Details</button>`;
+                }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-4 py-2 whitespace-nowrap text-sm">${dayjs(req.start_date).format('MMM D')} - ${dayjs(req.end_date).format('MMM D, YYYY')}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm">${req.leave_type}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm">${statusBadge}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-600" title="${req.admin_reason || ''}">${req.admin_reason || '-'}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-center">${actionButton || '-'}</td>
+                `;
+                DOMElements.leaveRequestsTableBody.appendChild(tr);
+            });
+        }
+
+        async function showLeaveDetails(requestId) {
+            const modal = document.getElementById('leave-details-modal');
+            const reasonEl = document.getElementById('leave-details-reason');
+            const daysContainer = document.getElementById('leave-details-days-container');
+
+            const request = myLeaveRequests.find(r => r.id === requestId);
+            
+            if (request) {
+                reasonEl.innerHTML = `<strong>Admin Note:</strong> ${request.admin_reason || 'N/A'}`;
+                modal.querySelector('h3').textContent = `Leave Request ${request.status.replace('_', ' ').toUpperCase()} Details`;
+            }
+
+            daysContainer.innerHTML = '<p class="text-sm text-gray-500">Loading details...</p>';
+            modal.classList.remove('hidden');
+
+            try {
+                const result = await postData('get_leave_request_details', { request_id: requestId });
+                daysContainer.innerHTML = '';
+                
+                if (result.data && result.data.length > 0) {
+                    const sortedDays = result.data.sort((a, b) => a.date.localeCompare(b.date));
+                    
+                    sortedDays.forEach(day => {
+                        let statusColorClass = 'text-red-700';
+                        let statusText = day.status;
+
+                        if (day.status.toLowerCase().includes('not approved')) {
+                             statusText = 'Not Approved/Rejected';
+                             statusColorClass = 'text-red-700 font-medium';
+                        } else if (day.status.toLowerCase().includes('paid leave') || day.status.toLowerCase().includes('sick leave')) {
+                            statusColorClass = 'text-green-700 font-semibold';
+                        } else if (day.status.toLowerCase().includes('unpaid leave')) {
+                            statusColorClass = 'text-amber-700 font-semibold';
+                        } else if (day.status.toLowerCase().includes('half day')) {
+                             statusColorClass = 'text-blue-700 font-semibold';
+                        }
+
+                        const dayHTML = `
+                            <div class="flex items-center justify-between gap-4 p-2 bg-gray-50 rounded border-l-4 ${day.status.toLowerCase().includes('not approved') ? 'border-red-400' : 'border-green-400'}">
+                                <span class="text-sm font-medium">${dayjs(day.date).format('ddd, MMM D, YYYY')}</span>
+                                <span class="text-sm ${statusColorClass}">${statusText}</span>
+                            </div>
+                        `;
+                        daysContainer.innerHTML += dayHTML;
+                    });
+                } else {
+                    daysContainer.innerHTML = '<p class="text-sm text-red-500">Could not load day-by-day details.</p>';
+                }
+            } catch (error) {
+                daysContainer.innerHTML = `<p class="text-sm text-red-500">Error fetching details: ${error.message}</p>`;
+            }
+        }
+
+        async function handleDeleteLeaveRequest(requestId) {
+            if (confirm('Are you sure you want to delete this pending leave request? This action cannot be undone.')) {
+                try {
+                    const result = await postData('delete_leave_request', { request_id: requestId });
+                    if (result.success) {
+                        await fetchData(false); 
+                    }
+                } catch (error) {
+                }
+            }
+        }
+        
+        function renderCharts() {
+            Object.values(charts).forEach(chart => chart.destroy());
+            const monthlySummaryCtx = document.getElementById('monthly-summary-chart').getContext('2d');
+            const thisMonthData = Object.values(allAttendanceData).filter(d => dayjs(d.attendance_date).isSame(dayjs(), 'month'));
+            const monthlySummary = thisMonthData.reduce((acc, curr) => { const status = curr.status || 'N/A'; acc[status] = (acc[status] || 0) + 1; return acc; }, {});
+            charts.monthlySummary = new Chart(monthlySummaryCtx, { type: 'doughnut', data: { labels: Object.keys(monthlySummary), datasets: [{ data: Object.values(monthlySummary), backgroundColor: ['#10B981', '#F59E0B', '#3B82F6', '#EF4444', '#6B7280'], borderColor: '#fff', borderWidth: 2, }] }, options: { plugins: { legend: { position: 'bottom' } } } });
+            const leaveAnalysisCtx = document.getElementById('leave-analysis-chart').getContext('2d');
+            const leaveData = Object.values(allAttendanceData).reduce((acc, curr) => { const status = curr.status || 'N/A'; if (status.includes('Leave') || status.includes('Half Day')) { acc[status] = (acc[status] || 0) + 1; } return acc; }, {});
+             charts.leaveAnalysis = new Chart(leaveAnalysisCtx, { type: 'pie', data: { labels: Object.keys(leaveData), datasets: [{ data: Object.values(leaveData), backgroundColor: ['#F59E0B', '#3B82F6', '#6366F1'], borderColor: '#fff', borderWidth: 2, }] }, options: { plugins: { legend: { position: 'bottom' } } } });
+            const dailyPerfCtx = document.getElementById('daily-performance-chart').getContext('2d');
+            const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const dailyHours = Array(7).fill(0); const dailyCounts = Array(7).fill(0);
+            Object.values(allAttendanceData).forEach(d => { if (d.status === 'Present' || d.status.startsWith('Half Day')) { const dayIndex = dayjs(d.attendance_date).day(); dailyHours[dayIndex] += calculateWorkDuration(d) / 3600000; dailyCounts[dayIndex]++; } });
+            const avgDailyHours = dailyHours.map((total, i) => dailyCounts[i] > 0 ? total / dailyCounts[i] : 0);
+            charts.dailyPerformance = new Chart(dailyPerfCtx, { type: 'bar', data: { labels: daysOfWeek, datasets: [{ label: 'Avg. Work Hours', data: avgDailyHours, backgroundColor: '#8B5CF6', }] }, options: { scales: { y: { beginAtZero: true } } } });
+            const weeklyHoursCtx = document.getElementById('weekly-hours-chart').getContext('2d');
+            const weeklyData = {};
+            for (let i = 7; i >= 0; i--) { const weekStart = dayjs().subtract(i, 'week').startOf('isoWeek'); const weekLabel = `Week ${weekStart.isoWeek()}`; weeklyData[weekLabel] = 0; }
+            Object.values(allAttendanceData).forEach(d => { if(d.status === 'Present' || d.status.startsWith('Half Day')) { const date = dayjs(d.attendance_date); const weekLabel = `Week ${date.isoWeek()}`; if(weeklyData.hasOwnProperty(weekLabel)) { weeklyData[weekLabel] += calculateWorkDuration(d) / 3600000; } } });
+             charts.weeklyHours = new Chart(weeklyHoursCtx, { type: 'line', data: { labels: Object.keys(weeklyData), datasets: [{ label: 'Total Work Hours', data: Object.values(weeklyData), borderColor: '#10B981', tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } });
+            const avgLoginCtx = document.getElementById('avg-login-chart').getContext('2d');
+            const avgLogoutCtx = document.getElementById('avg-logout-chart').getContext('2d');
+            let totalLoginMinutes = 0, totalLogoutMinutes = 0, loginCount = 0, logoutCount = 0;
+            Object.values(allAttendanceData).forEach(d => { if (d.login_time) { const login = dayjs.tz(d.login_time, appTimezone); totalLoginMinutes += login.hour() * 60 + login.minute(); loginCount++; } if (d.logout_time) { const logout = dayjs.tz(d.logout_time, appTimezone); totalLogoutMinutes += logout.hour() * 60 + logout.minute(); logoutCount++; } });
+            const avgLogin = loginCount > 0 ? totalLoginMinutes / loginCount : 0;
+            const avgLogout = logoutCount > 0 ? totalLogoutMinutes / logoutCount : 0;
+            const formatTime = (totalMinutes) => { if (totalMinutes === 0) return "N/A"; const hours = Math.floor(totalMinutes / 60); const minutes = Math.round(totalMinutes % 60); return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`; };
+            const timeToHours = (totalMinutes) => totalMinutes / 60;
+             charts.avgLogin = new Chart(avgLoginCtx, { type: 'bar', data: { labels: ['Avg. Login'], datasets: [{ data: [timeToHours(avgLogin)], backgroundColor: ['#3B82F6'] }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, max: 24, ticks: { callback: value => `${value}:00` } } }, plugins: { tooltip: { callbacks: { label: () => `Time: ${formatTime(avgLogin)}` } } } } });
+             charts.avgLogout = new Chart(avgLogoutCtx, { type: 'bar', data: { labels: ['Avg. Logout'], datasets: [{ data: [timeToHours(avgLogout)], backgroundColor: ['#EF4444'] }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, max: 24, ticks: { callback: value => `${value}:00` } } }, plugins: { tooltip: { callbacks: { label: () => `Time: ${formatTime(avgLogout)}` } } } } });
+            const breakUsageCtx = document.getElementById('break-usage-chart').getContext('2d');
+             const breakUsageData = thisMonthData.filter(d => d.status === 'Present' || d.status.startsWith('Half Day')).map(d => ({ x: dayjs(d.attendance_date).format('D'), y: Math.floor(calculateTotalBreakDuration(d) / 60000) }));
+             charts.breakUsage = new Chart(breakUsageCtx, { type: 'bar', data: { labels: breakUsageData.map(d => d.x), datasets: [{ label: 'Break Minutes', data: breakUsageData.map(d=> d.y), backgroundColor: '#F59E0B', }] }, options: { scales: { y: { beginAtZero: true } } } });
+        }
+
+        function getReportData(year, month) {
+            const report = { daily: [], weekly: {}, monthly: { workHoursMs: 0, allocatedBreakMins: 0, takenBreakMins: 0, daysPresent: 0, daysOnLeave: 0, daysAbsent: 0, workingDays: 0 },};
+            const startDate = dayjs(`${year}-${parseInt(month) + 1}-01`);
+            const daysInMonth = startDate.daysInMonth();
+            const today = dayjs();
+            for (let i = 1; i <= daysInMonth; i++) {
+                const date = startDate.date(i);
+                if (date.isAfter(today, 'day')) continue; 
+                const dateStr = date.format('YYYY-MM-DD');
+                const record = allAttendanceData[dateStr] || {};
+                const weekNum = date.isoWeek();
+                if (!report.weekly[weekNum]) {
+                    report.weekly[weekNum] = { workHoursMs: 0, allocatedBreakMins: 0, takenBreakMins: 0, workingDays: 0, daysPresent: 0 };
+                }
+                const workDurationMs = calculateWorkDuration(record);
+                const takenBreakMins = Math.floor(calculateTotalBreakDuration(record) / 60000);
+                const allocatedBreakMins = calculateAllocatedBreakMins(date);
+                const dayStatus = isWorkingDay(date) ? (record.status || 'Absent') : 'Holiday';
+                
+                report.daily.push({ date: dateStr, status: dayStatus, inTime: record.login_time ? dayjs.tz(record.login_time, "YYYY-MM-DD HH:mm:ss", appTimezone).format('h:mm A') : '---', outTime: record.logout_time ? dayjs.tz(record.logout_time, "YYYY-MM-DD HH:mm:ss", appTimezone).format('h:mm A') : '---', workHours: workDurationMs > 0 ? formatTotalDuration(workDurationMs) : '---', takenBreakMins, remainingBreakMins: allocatedBreakMins - takenBreakMins, });
+                
+                if (isWorkingDay(date)) {
+                    report.monthly.workingDays++;
+                    report.weekly[weekNum].workingDays++;
+                    report.monthly.allocatedBreakMins += allocatedBreakMins;
+                    report.weekly[weekNum].allocatedBreakMins += allocatedBreakMins;
+                    if (record.status) {
+                         report.monthly.workHoursMs += workDurationMs;
+                         report.weekly[weekNum].workHoursMs += workDurationMs;
+                         report.monthly.takenBreakMins += takenBreakMins;
+                         report.weekly[weekNum].takenBreakMins += takenBreakMins;
+                    }
+                    const status = record.status || 'Absent';
+                    const lowerStatus = status.toLowerCase();
+                    if (lowerStatus === 'present') {
+                        report.monthly.daysPresent++;
+                        report.weekly[weekNum].daysPresent++;
+                    } else if (lowerStatus.includes('half day')) {
+                        report.monthly.daysPresent += 0.5;
+                        report.monthly.daysOnLeave += 0.5;
+                        report.weekly[weekNum].daysPresent += 0.5;
+                    } else if (lowerStatus.includes('leave')) {
+                        report.monthly.daysOnLeave++;
+                    } else if (lowerStatus === 'absent') {
+                        report.monthly.daysAbsent++;
+                    }
+                }
+            }
+            return report;
+        }
+
+        function renderDailyReport(data) {
+            let html = `<table class="min-w-full divide-y divide-gray-200 mt-4"> <thead class="bg-gray-50"><tr> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">In Time</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Out Time</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Work Hours</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break Taken</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break Rem.</th> </tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+            data.forEach(day => { html += `<tr> <td class="px-4 py-2 whitespace-nowrap">${day.date} (${day.status})</td> <td class="px-4 py-2 whitespace-nowrap">${day.inTime}</td> <td class="px-4 py-2 whitespace-nowrap">${day.outTime}</td> <td class="px-4 py-2 whitespace-nowrap">${day.workHours}</td> <td class="px-4 py-2 whitespace-nowrap">${day.takenBreakMins}m</td> <td class="px-4 py-2 whitespace-nowrap ${day.remainingBreakMins < 0 ? 'text-red-600' : ''}">${day.remainingBreakMins}m</td> </tr>`; });
+            html += `</tbody></table>`;
+            DOMElements.reportContentEl.innerHTML = html;
+        }
+        
+        function renderWeeklyReport(data) {
+            let html = `<table class="min-w-full divide-y divide-gray-200 mt-4"> <thead class="bg-gray-50"><tr> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Week</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Work Hours</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break Taken</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break Rem.</th> <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Days Worked</th> </tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+            Object.keys(data).forEach(weekNum => {
+                const week = data[weekNum];
+                const remainingBreak = week.allocatedBreakMins - week.takenBreakMins;
+                html += `<tr> <td class="px-4 py-2 whitespace-nowrap font-semibold">Week ${weekNum}</td> <td class="px-4 py-2 whitespace-nowrap">${formatTotalDuration(week.workHoursMs)}</td> <td class="px-4 py-2 whitespace-nowrap">${week.takenBreakMins}m / ${week.allocatedBreakMins}m</td> <td class="px-4 py-2 whitespace-nowrap ${remainingBreak < 0 ? 'text-red-600' : ''}">${remainingBreak}m</td> <td class="px-4 py-2 whitespace-nowrap">${week.daysPresent} / ${week.workingDays}</td> </tr>`;
+            });
+            html += `</tbody></table>`;
+            DOMElements.reportContentEl.innerHTML = html;
+        }
+        
+        function renderMonthlyReport(data) {
+             const remainingBreak = data.allocatedBreakMins - data.takenBreakMins;
+             let html = `<div class="mt-4 p-4 bg-gray-50 rounded-lg space-y-3"> <div class="flex justify-between items-center"><span class="font-semibold">Total Work Hours:</span><span>${formatTotalDuration(data.workHoursMs)}</span></div> <div class="flex justify-between items-center"><span class="font-semibold">Total Break Taken:</span><span>${data.takenBreakMins}m / ${data.allocatedBreakMins}m</span></div> <div class="flex justify-between items-center"><span class="font-semibold">Total Break Remaining:</span><span class="${remainingBreak < 0 ? 'text-red-600' : ''}">${remainingBreak}m</span></div> <div class="flex justify-between items-center"><span class="font-semibold">Days Present:</span><span>${data.daysPresent} / ${data.workingDays}</span></div> <div class="flex justify-between items-center"><span class="font-semibold">Days On Leave:</span><span>${data.daysOnLeave}</span></div> <div class="flex justify-between items-center"><span class="font-semibold">Days Absent:</span><span>${data.daysAbsent}</span></div> </div>`;
+             DOMElements.reportContentEl.innerHTML = html;
+        }
+        
+        function renderReport() {
+            const year = DOMElements.yearFilterReport.value;
+            const month = DOMElements.monthFilterReport.value;
+            if(!year || !month) {
+                DOMElements.reportContentEl.innerHTML = `<p class="text-center text-gray-500 py-4">Please select a year and month.</p>`;
+                return;
+            }
+            const reportData = getReportData(year, month);
+            if (currentReportView === 'daily') renderDailyReport(reportData.daily);
+            else if (currentReportView === 'weekly') renderWeeklyReport(reportData.weekly);
+            else if (currentReportView === 'monthly') renderMonthlyReport(reportData.monthly);
+        }
+
+        function exportToXLSX() {
+            const year = DOMElements.yearFilterReport.value;
+            const month = DOMElements.monthFilterReport.value;
+            const monthName = dayjs().month(month).format("MMMM");
+            const reportData = getReportData(year, month);
+            const wb = XLSX.utils.book_new();
+            let ws, sheetName;
+            if (currentReportView === 'daily') {
+                sheetName = "Daily Report";
+                const data = reportData.daily.map(d => ({ Date: d.date, Status: d.status, 'In Time': d.inTime, 'Out Time': d.outTime, 'Work Hours': d.workHours, 'Break Taken (m)': d.takenBreakMins, 'Break Rem. (m)': d.remainingBreakMins }));
+                ws = XLSX.utils.json_to_sheet(data);
+            } else if (currentReportView === 'weekly') {
+                sheetName = "Weekly Report";
+                const data = Object.keys(reportData.weekly).map(weekNum => {
+                    const week = reportData.weekly[weekNum];
+                    return { Week: `Week ${weekNum}`, 'Work Hours': formatTotalDuration(week.workHoursMs), 'Break Taken (m)': week.takenBreakMins, 'Break Allocated (m)': week.allocatedBreakMins, 'Break Rem. (m)': week.allocatedBreakMins - week.takenBreakMins, 'Days Worked': `${week.daysPresent} / ${week.workingDays}` };
+                });
+                ws = XLSX.utils.json_to_sheet(data);
+            } else {
+                sheetName = "Monthly Summary";
+                const data = reportData.monthly;
+                const summary = [ ['Metric', 'Value'], ['Total Work Hours', formatTotalDuration(data.workHoursMs)], ['Total Break Taken (m)', data.takenBreakMins], ['Total Break Allocated (m)', data.allocatedBreakMins], ['Total Break Remaining (m)', data.allocatedBreakMins - data.takenBreakMins], ['Days Present', `${data.daysPresent} / ${data.workingDays}`], ['Days On Leave', data.daysOnLeave], ['Days Absent', data.daysAbsent] ];
+                ws = XLSX.utils.aoa_to_sheet(summary);
+            }
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            XLSX.writeFile(wb, `Attendance_Report_${year}_${monthName}_${currentReportView}.xlsx`);
+        }
+
+        async function postData(action, body) {
+            try {
+                const response = await fetch(`${API_URL}?action=${action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(body)
+                });
+                if (!response.ok) {
+                    let errorMsg = `HTTP error! status: ${response.status}`;
+                    try { const errorData = await response.json(); if (errorData && errorData.message) errorMsg = errorData.message; } catch (e) { /* Ignore */ }
+                    throw new Error(errorMsg);
+                }
+                const result = await response.json();
+                if (result.success) {
+                    if (!['login', 'get_all_data', 'check_connection', 'get_my_leave_requests', 'get_leave_request_details', 'clear_leave_notification'].includes(action)) {
+                        await fetchData(false);
+                        showModal('message-modal', "Success", result.message);
+                    }
+                    return result;
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error(`Error with action '${action}':`, error);
+                if (action !== 'login' && !action.includes('check')) {
+                   showModal('message-modal', "Error", error.message);
+                }
+                throw error;
+            }
+        }
+        
+        async function fetchData(showLogin = true) {
+             try {
+                const [attendanceResult, leaveRequestsResult] = await Promise.all([
+                    postData('get_all_data', {}),
+                    postData('get_my_leave_requests', {})
+                ]);
+
+                const data = attendanceResult.data;
+                allAttendanceData = data.attendance || {};
+                userProfile = data.profile || {};
+                
+                userProfile.unread_notifications = data.unread_notifications || false; 
+
+                DOMElements.fullNameEl.textContent = data.current_user.full_name;
+                
+                Object.keys(allAttendanceData).forEach(date => {
+                    if (typeof allAttendanceData[date].breaks === 'string' && allAttendanceData[date].breaks) {
+                       try { allAttendanceData[date].breaks = JSON.parse(allAttendanceData[date].breaks); } catch(e) { /* ignore */ }
+                    }
+                });
+                
+                if (userProfile) {
+                    if (userProfile.initial_leaves && typeof userProfile.initial_leaves === 'string') userProfile.initial_leaves = JSON.parse(userProfile.initial_leaves);
+                    if (userProfile.bonus_leaves && typeof userProfile.bonus_leaves === 'string') userProfile.bonus_leaves = JSON.parse(userProfile.bonus_leaves);
+                    if (userProfile.paid_leaves_used && !Array.isArray(userProfile.paid_leaves_used)) userProfile.paid_leaves_used = [];
+                }
+                
+                DOMElements.app.style.display = 'block';
+                hideModal('login-modal');
+                updateUI();
+                renderLeaveRequests(leaveRequestsResult.data);
+            } catch (error) {
+                if(showLogin) {
+                    DOMElements.app.style.display = 'none';
+                    DOMElements.userIdInput.value = '';
+                    DOMElements.passwordInput.value = '';
+                    showModal('login-modal');
+                }
+            }
+        }
+        async function checkDbConnection() {
+            try {
+                const response = await fetch(`${API_URL}?action=check_connection`);
+                const result = await response.json();
+                if (result.success) {
+                    DOMElements.dbStatusDot.classList.remove('bg-gray-400', 'bg-red-500');
+                    DOMElements.dbStatusDot.classList.add('bg-green-500');
+                    DOMElements.dbStatusDot.title = "Database Connection Successful";
+                } else {
+                    throw new Error("Connection failed");
+                }
+            } catch (e) {
+                DOMElements.dbStatusDot.classList.remove('bg-gray-400', 'bg-green-500');
+                DOMElements.dbStatusDot.classList.add('bg-red-500');
+                DOMElements.dbStatusDot.title = "Database Connection Failed";
+            }
+        }
+        async function handleLogin() {
+            const userId = DOMElements.userIdInput.value;
+            const password = DOMElements.passwordInput.value;
+            DOMElements.loginError.textContent = '';
+            try {
+                await postData('login', { user_id: userId, password: password });
+                await fetchData();
+            } catch(error) {
+                DOMElements.loginError.textContent = error.message || 'Login failed.';
+            }
+        }
+        async function handleLogout() {
+            await postData('logout', {});
+            DOMElements.app.style.display = 'none';
+            DOMElements.userIdInput.value = '';
+            DOMElements.passwordInput.value = '';
+            showModal('login-modal');
+        }
+        function handleLoginLogout() {
+            const todayData = allAttendanceData[dayjs().format('YYYY-MM-DD')];
+            const action = (todayData && todayData.login_time && !todayData.logout_time) ? 'clock_out' : 'clock_in';
+            postData(action, {});
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            checkDbConnection();
+            fetchData();
+            DOMElements.loginBtn.addEventListener('click', handleLogin);
+            DOMElements.passwordInput.addEventListener('keydown', (e) => { if(e.key === "Enter") handleLogin(); });
+            DOMElements.logoutBtn.addEventListener('click', handleLogout);
+            DOMElements.loginLogoutBtn.addEventListener('click', handleLoginLogout);
+            DOMElements.breakBtn.addEventListener('click', () => postData('break', {}));
+            DOMElements.openLeaveModalBtn.addEventListener('click', () => showModal('add-leave-modal'));
+            DOMElements.leaveModalCloseBtn.addEventListener('click', () => hideModal('add-leave-modal'));
+            DOMElements.modalCloseBtn.addEventListener('click', () => hideModal('message-modal'));
+            document.getElementById('leave-details-close-btn').addEventListener('click', () => hideModal('leave-details-modal'));
+            DOMElements.addLeaveBtn.addEventListener('click', () => {
+                const startDate = DOMElements.leaveStartDateInput.value;
+                const endDate = DOMElements.leaveEndDateInput.value;
+                const leaveType = DOMElements.leaveTypeInput.value;
+                const reason = DOMElements.leaveReasonInput.value;
+
+                if(!startDate || !endDate) {
+                    showModal('message-modal', "Input Required", "Please select a start and end date.");
+                    return;
+                }
+                 if (dayjs(endDate).isBefore(dayjs(startDate))) {
+                    showModal('message-modal', "Invalid Dates", "End date cannot be before the start date.");
+                    return;
+                }
+                hideModal('add-leave-modal');
+                postData('request_leave', { 
+                    start_date: startDate, 
+                    end_date: endDate,
+                    type: leaveType,
+                    reason: reason
+                });
+            });
+            DOMElements.homeBtn.addEventListener('click', () => switchPage('home'));
+            DOMElements.insightsBtn.addEventListener('click', () => switchPage('insights'));
+            DOMElements.reportsBtn.addEventListener('click', () => switchPage('reports'));
+            DOMElements.leavesBtn.addEventListener('click', () => switchPage('leaves'));
+            DOMElements.yearFilter.addEventListener('change', renderHistory);
+            DOMElements.monthFilter.addEventListener('change', renderHistory);
+            DOMElements.yearFilterReport.addEventListener('change', renderReport);
+            DOMElements.monthFilterReport.addEventListener('change', renderReport);
+            DOMElements.exportBtn.addEventListener('click', exportToXLSX);
+            DOMElements.reportViewButtons.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    DOMElements.reportViewButtons.querySelector('.active').classList.remove('active');
+                    e.target.classList.add('active');
+                    currentReportView = e.target.dataset.view;
+                    renderReport();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

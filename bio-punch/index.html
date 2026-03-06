@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-100">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        
+        /* Modal styles */
+        #editModal.hidden, #exportModal.hidden { display: none; }
+        .modal-body { max-height: 70vh; }
+
+        /* Punch input row styles for drag handle */
+        .punch-row { display: grid; grid-template-columns: auto 1fr 100px auto; align-items: center; gap: 0.5rem; }
+        
+        /* Drag handle style */
+        .drag-handle { cursor: move; padding: 0 8px; color: #9ca3af; }
+        .drag-handle:hover { color: #374151; }
+        .sortable-ghost { background: #dbeafe; opacity: 0.7; }
+
+        /* Dashboard card icon style */
+        .dash-icon { @apply w-12 h-12 p-3 rounded-full; }
+        /* Clickable dashboard card */
+        .dash-card-clickable { @apply cursor-pointer transition-all hover:shadow-md hover:border-blue-300; }
+
+        /* New Layout Styles */
+        .app-shell { display: grid; grid-template-columns: 64px 1fr; height: 100vh; }
+        .main-content { display: grid; grid-template-rows: auto 1fr; height: 100vh; overflow: hidden; grid-column: 2 / -1; }
+        .content-area { overflow-y: auto; }
+        .sidebar-nav-item.active { @apply bg-blue-100 text-blue-700; }
+        .employee-list-item.active { @apply bg-blue-50 border-r-4 border-blue-500 font-semibold; }
+        .missed-punch-btn.active { @apply bg-red-600 text-white hover:bg-red-700; }
+        /* Chart container */
+        .chart-container { height: 350px; }
+        /* Fixed header for tables */
+        #attendanceTable thead th { position: sticky; top: 0; background-color: #f9fafb; z-index: 10; }
+    </style>
+</head>
+
+<body class="h-full font-sans text-gray-800">
+    
+    <div id="appShell" class="app-shell bg-gray-100">
+        
+        <nav class="bg-white border-r border-gray-200 flex flex-col items-center pt-4 space-y-3">
+            <button class="p-2 rounded-lg text-blue-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-7 h-7"><path d="M3 3v18h18"/><path d="M7 12v5h4v-5"/><path d="M12 8v9h4V8"/><path d="M17 3v14h4V3"/></svg>
+            </button>
+            
+            <button id="navInsights" data-view="insightsView" class="sidebar-nav-item active p-3 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600" title="Insights">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>
+            </button>
+            
+            <button id="navData" data-view="dataView" class="sidebar-nav-item p-3 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600" title="All Data">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M17 3.82a1 1 0 0 1 .55.9v14.55a1 1 0 0 1-1.55.83l-5.6-4.07a1 1 0 0 0-1.1 0l-5.6 4.07A1 1 0 0 1 2 19.27V4.72a1 1 0 0 1 .55-.9L8.22 1.1a1 1 0 0 1 1.1 0l5.58 2.72Z"/><path d="M12 22V8"/></svg>
+            </button>
+
+            <button id="navShifts" data-view="shiftView" class="sidebar-nav-item p-3 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600" title="Shift Definitions">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </button>
+                       
+            <button id="navDoublePunch" data-view="doublePunchView" class="sidebar-nav-item p-3 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600" title="Double Punch Analysis">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </button>
+        </nav>
+
+        <aside id="employeeListSidebar" class="bg-white border-r border-gray-200 flex flex-col hidden">
+            <h3 id="sidebarTitle" class="px-4 py-3 text-sm font-semibold text-gray-600 border-b">Employees</h3>
+            <div class="flex-1 overflow-y-auto">
+                <div id="employeeList" class="py-2">
+                    <p id="employeeListPlaceholder" class="px-4 py-2 text-sm text-gray-500">Loading...</p>
+                </div>
+            </div>
+        </aside>
+
+        <div class="main-content" id="mainContentArea">
+            
+            <div id="insightsView" class="content-area p-4 sm:p-6 lg:p-8 space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">
+                        <span id="insightHeaderName">Overall</span> Insights Dashboard
+                    </h1>
+                    
+                    <!-- WRAPPER FOR RIGHT-SIDE CONTROLS -->
+                    <div class="flex flex-col sm:flex-row items-end sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 mt-2 sm:mt-0">
+                        <!-- Original Month Picker -->
+                        <div class="flex items-center space-x-2">
+                            <label for="dashboardMonth" class="text-sm font-medium text-gray-700">Month:</label>
+                            <input type="month" id="dashboardMonth"
+                                class="p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                        </div>
+                        
+                        <!-- NEW ADMIN BUTTON -->
+                        <a href="https://brown-okapi-217859.hostingersite.com/admin.html" target="_blank"
+                            class="flex items-center space-x-1.5 px-3 py-2 bg-pink-600 text-white rounded-md shadow-sm text-sm font-medium hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500" title="Go to Admin Section">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M16 16h-3a4 4 0 0 1-4-4V5"/><path d="M8 21h8"/></svg>
+                            <span>Go to Admin Section</span>
+                        </a>
+                    </div>
+                </div>
+                <div id="dashboardStats" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                    </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h2 id="chart1Title" class="text-lg font-medium leading-6 text-gray-900 mb-4">Daily Attendance</h2>
+                        <div class="chart-container">
+                            <canvas id="chart1Canvas"></canvas>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h2 id="chart2Title" class="text-lg font-medium leading-6 text-gray-900 mb-4">Top 5 by Average Break Minutes (Adj.)</h2>
+                        <div class="chart-container">
+                            <canvas id="chart2Canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="uploaderCard" class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h2 class="text-lg font-medium leading-6 text-gray-900 mb-4">Upload New File</h2>
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-4 sm:space-y-0">
+                        <input type="file" id="fileInput" accept=".csv, .xls, .xlsx"
+                            class="block w-full text-sm text-gray-500
+                                        file:mr-4 file:py-2 file:px-4
+                                        file:rounded-md file:border-0
+                                        file:text-sm file:font-semibold
+                                        file:bg-blue-50 file:text-blue-700
+                                        hover:file:bg-blue-100 cursor-pointer"/>
+                        <button id="uploadButton"
+                            class="flex justify-center items-center space-x-2 w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
+                            <span>Process & Save</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dataView" class="content-area flex-col h-full hidden">
+                <div class="bg-white border-b border-gray-200 p-4 shadow-sm">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                        <div class="flex flex-col sm:flex-row gap-4 flex-1">
+                            <input type="text" id="filterName" placeholder="Search by name..."
+                                class="p-2 w-full sm:w-64 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" title="Search by name">
+                            <select id="statusFilter" class="p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm w-full sm:w-32">
+                                <option value="">Status: All</option>
+                                <option value="Present">Present</option>
+                                <option value="Absent">Absent</option>
+                                <option value="Leave">On Leave</option>
+                                <option value="WeeklyOff">Weekly Off</option>
+                            </select>
+                            
+                            <select id="remarkFilter" class="p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm w-full sm:w-40">
+                                <option value="">Remark: All</option>
+                                <option value="Any">Any Remark</option>
+                                <option value="Half Day">Half Day</option>
+                                <option value="1st Late">1st Late</option>
+                                <option value="2nd Late">2nd Late</option>
+                                <option value="3rd Late">3rd Late</option>
+                            </select>
+
+                            <input type="date" id="filterDateStart"
+                                class="p-2 w-full sm:w-auto border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" title="Date From">
+                            <input type="date" id="filterDateEnd"
+                                class="p-2 w-full sm:w-auto border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" title="Date To">
+                        </div>
+                        <div class="flex items-center space-x-2">
+                             <button id="missedPunchButton"
+                                class="missed-punch-btn flex items-center space-x-1.5 px-3 py-2 bg-yellow-500 text-white rounded-md shadow-sm font-medium hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500" title="Toggle Missed Punches View">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                                <span>Missed Punches</span>
+                            </button>
+                            <button id="exportButton"
+                                class="flex items-center space-x-1.5 px-3 py-2 bg-green-600 text-white rounded-md shadow-sm font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500" title="Export data to XLSX">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18l-4-4h3V9h2v5h3z"/></svg>
+                                <span>Export XLSX</span>
+                            </button>
+                             <button id="resetButton"
+                                class="flex items-center space-x-1.5 px-3 py-2 bg-gray-100 text-gray-700 rounded-md shadow-sm font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300" title="Reset all filters">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tableContainer" class="flex-1 overflow-auto w-full">
+                    <p id="tablePlaceholder" class="text-gray-500 text-center py-8">Loading records...</p>
+                    <table id="attendanceTable" class="min-w-full divide-y divide-gray-200 hidden">
+                        <thead class="bg-gray-50 sticky top-0 z-10">
+                            <tr>
+                                <th scope="col" class="pl-4 pr-3 py-3.5 text-left text-xs font-semibold text-gray-900 sticky left-0 bg-gray-50 z-20 min-w-[150px]">Employee Name</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[90px]">Date</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[90px]">Sch. In/Out</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">A. In/Out</th>
+                                
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[80px]">Net Work Hrs</th> 
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">Late By</th> 
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">Early Going By</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">Act. Break</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">Adj. OT</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[70px]">Status</th>
+                                <th scope="col" class="px-2 py-3.5 text-left text-xs font-semibold text-gray-900 min-w-[100px] bg-yellow-50">Remark</th>
+                                <th scope="col" class="relative py-3.5 pl-3 pr-4 min-w-[50px]"><span class="sr-only">Edit</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-gray-200 bg-white">
+                            </tbody>
+                    </table>
+                </div>
+                
+                <nav id="paginationControls" class="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6" aria-label="Pagination">
+                    <div class="hidden sm:block">
+                        <p id="paginationInfo" class="text-sm text-gray-700">
+                            Showing <span class="font-medium">1</span> to <span class="font-medium">10</span> of <span class="font-medium">20</span> results
+                        </p>
+                    </div>
+                    <div class="flex-1 flex justify-between sm:justify-end">
+                        <button id="prevButton"
+                            class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                            Previous
+                        </button>
+                        <button id="nextButton"
+                            class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                            Next
+                        </button>
+                    </div>
+                </nav>
+            </div>
+            
+            <div id="shiftView" class="content-area p-4 sm:p-6 lg:p-8 space-y-6 hidden">
+                 <h1 class="text-2xl font-bold text-gray-900">Shift Definitions</h1>
+                 
+                 <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                     <h2 class="text-lg font-medium leading-6 text-gray-900 mb-4">Set Employee Shifts</h2>
+                     <div id="shiftListPlaceholder" class="text-gray-500">Loading employees...</div>
+                     <div id="shiftListContainer" class="space-y-4">
+                         </div>
+                 </div>
+            </div>
+            
+        </div> </div> 
+        
+        <div id="messageToast" class="fixed bottom-5 right-5 p-4 rounded-lg shadow-lg text-white transition-all translate-y-20 opacity-0 invisible z-[60] flex items-center space-x-3">
+            <svg id="messageIcon_success" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 hidden"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <svg id="messageIcon_error" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 hidden"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+            <svg id="messageIcon_info" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 hidden"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>
+            <span id="messageText"></span>
+        </div>
+
+    <div id="loadingOverlay"
+        class="fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center z-[70] hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white"></div>
+    </div>
+
+    <div id="exportModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex justify-center items-center z-50 hidden" aria-labelledby="export-modal-title" role="dialog" aria-modal="true">
+        <form id="exportForm" class="bg-white rounded-lg shadow-xl w-full max-w-md m-4">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900" id="export-modal-title">Export Data</h3>
+                <button type="button" id="closeExportModalButton" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-gray-700">Please select the date range for your XLSX export.</p>
+                <div>
+                    <label for="exportDateStart" class="block text-sm font-medium text-gray-700">Start Date</label>
+                    <input type="date" id="exportDateStart" required class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+                  <div>
+                    <label for="exportDateEnd" class="block text-sm font-medium text-gray-700">End Date</label>
+                    <input type="date" id="exportDateEnd" required class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                </div>
+            </div>
+            <div class="bg-gray-50 px-6 py-3 flex justify-end items-center space-x-3">
+                <button type="button" id="cancelExportButton" class="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="submit" id="confirmExportButton" class="px-4 py-2 bg-green-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-green-700">Download Export</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="editModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex justify-center items-center z-50 hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <form id="editForm" class="bg-white rounded-lg shadow-xl w-full max-w-3xl m-4">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900" id="modal-title">Edit Record</h3>
+                <button type="button" id="closeModalButton" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+                </button>
+            </div>
+            
+            <div class="p-6 modal-body overflow-y-auto">
+                <input type="hidden" id="editLogID">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div class="col-span-2">
+                        <label for="editEmployeeName" class="block text-sm font-medium text-gray-700">Employee</label>
+                        <input type="text" id="editEmployeeName" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                    </div>
+                    <div>
+                        <label for="editAttendanceDate" class="block text-sm font-medium text-gray-700">Date</label>
+                        <input type="date" id="editAttendanceDate" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                    </div>
+                    <div>
+                        <label for="editStatus" class="block text-sm font-medium text-gray-700">Status</label>
+                        <input type="text" id="editStatus" name="Status" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    </div>
+                    
+                    <div class="sm:col-span-4"><hr class="my-2"></div>
+
+                    <div>
+                        <label for="editShift" class="block text-sm font-medium text-gray-700">Shift</label>
+                        <input type="text" id="editShift" name="Shift" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    </div>
+                    <div>
+                        <label for="editScheduledIn" class="block text-sm font-medium text-gray-700">Scheduled In</label>
+                        <input type="time" step="1" id="editScheduledIn" name="ScheduledIn" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    </div>
+                    <div>
+                        <label for="editScheduledOut" class="block text-sm font-medium text-gray-700">Scheduled Out</label>
+                        <input type="time" step="1" id="editScheduledOut" name="ScheduledOut" class="mt-1 p-2 w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    </div>
+                     <div class="col-span-1">
+                         <label class="block text-sm font-medium text-gray-700 invisible">Spacer</label>
+                         <button type="button" id="loadShiftDefaults" class="w-full px-3 py-2 bg-gray-200 text-gray-800 rounded-md shadow-sm text-sm hover:bg-gray-300">Load Defaults</button>
+                    </div>
+
+                    <div class="sm:col-span-4"><hr class="my-2"></div>
+                    
+                    <div class="col-span-4 grid grid-cols-5 gap-4">
+                        <div class="col-span-2">
+                            <label for="editActualIn" class="block text-sm font-medium text-gray-700">First Punch (Actual In)</label>
+                            <input type="time" step="1" id="editActualIn" name="ActualIn" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        <div class="col-span-2">
+                            <label for="editActualOut" class="block text-sm font-medium text-gray-700">Last Punch (Actual Out)</label>
+                            <input type="time" step="1" id="editActualOut" name="ActualOut" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                    </div>
+                    
+                    <div class="col-span-4 grid grid-cols-5 gap-4">
+                        <div>
+                            <label for="editEarlyByIn" class="block text-sm font-medium text-gray-700">Early By In</label>
+                            <input type="text" id="editEarlyByIn" name="EarlyByIn" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label for="editLateByOut" class="block text-sm font-medium text-gray-700">Late By Out</label>
+                            <input type="text" id="editLateByOut" name="LateByOut" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="editLateBy" class="block text-sm font-medium text-gray-700">Late By</label>
+                            <input type="text" id="editLateBy" name="LateBy" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm text-red-600 font-medium">
+                        </div>
+                        <div>
+                            <label for="editEarlyGoingBy" class="block text-sm font-medium text-gray-700">Early Going By</label>
+                            <input type="text" id="editEarlyGoingBy" name="EarlyGoingBy" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm text-red-600 font-medium">
+                        </div>
+                        <div>
+                            <label for="editActualBreak" class="block text-sm font-medium text-gray-700">Actual Break</label>
+                            <input type="text" id="editActualBreak" name="ActualBreak" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label for="editBreakAdjustment" class="block text-sm font-medium text-gray-700">Break Adj. Used</label>
+                            <input type="text" id="editBreakAdjustment" name="BreakAdjustment" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label for="editAdjustedBreakResult" class="block text-sm font-medium text-gray-700">Adj. Break Result</label>
+                            <input type="text" id="editAdjustedBreakResult" name="AdjustedBreakResult" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label for="editAdjustedOvertime" class="block text-sm font-medium text-gray-700">Adj. OT</label>
+                            <input type="text" id="editAdjustedOvertime" name="AdjustedOvertime" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm">
+                        </div>
+                          <div class="col-span-5 grid grid-cols-5 gap-4">
+                            <div class="col-span-1">
+                                <label for="editNetWorkDuration" class="block text-sm font-medium text-gray-700">Net Work Hrs</label>
+                                <input type="text" id="editNetWorkDuration" name="NetWorkDuration" readonly class="mt-1 p-2 w-full border border-gray-300 rounded-md bg-gray-100 text-sm font-bold">
+                            </div>
+                            
+                            <input type="hidden" id="editWorkDuration" name="WorkDuration">
+                            <input type="hidden" id="editOvertime" name="Overtime">
+                            <input type="hidden" id="editTotalDuration" name="TotalDuration">
+                            
+                        </div>
+                    </div>
+                    
+                    <div class="sm:col-span-4 mt-4">
+                        <div class="flex justify-between items-center mb-2">
+                             <h4 class="text-sm font-semibold text-gray-900 flex items-center">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block w-4 h-4 mr-1 relative -top-px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                                 All Punches (Drag to Reorder)
+                             </h4>
+                             <button type="button" id="addPunchRow" class="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
+                                 <span>Add Punch</span>
+                             </button>
+                        </div>
+                        
+                        <div id="punchListContainerWrapper" class="space-y-3 p-4 bg-gray-50 rounded-md border border-gray-200">
+                            <div class="punch-row px-2 text-xs font-medium text-gray-500">
+                                <span class="drag-handle" title="Drag to reorder"></span>
+                                <span>Time</span>
+                                <span>Type</span>
+                                <span>Delete</span>
+                            </div>
+                            <div id="punchListContainer"> 
+                                <p id="noPunchesText" class="text-sm text-gray-500 text-center py-4">No punches for this entry.</p>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">First punch: Actual In, Last punch: Actual Out. Punches are auto-sorted by time on save.</p>
+                    </div>
+                </div>
+            
+            <div class="bg-gray-50 px-6 py-3 flex justify-end items-center space-x-3">
+                <button type="button" id="cancelModalButton" class="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="submit" id="saveModalButton" class="px-4 py-2 bg-blue-600 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700">Save Changes</button>
+            </div>
+        </form>
+    </div>
+
+    <script type="module">
+        // --- CONFIG ---
+        const API_URL = 'api.php';
+        const PUNCH_TIME_GAP_SECONDS = 30;
+        const RECORDS_PER_PAGE = 20;
+
+        // --- DOM Elements ---
+        const appShell = document.getElementById('appShell');
+        const insightsView = document.getElementById('insightsView');
+        const dataView = document.getElementById('dataView');
+        const shiftView = document.getElementById('shiftView');
+        const employeeListSidebar = document.getElementById('employeeListSidebar');
+        const mainContentArea = document.getElementById('mainContentArea');
+        const sidebarTitle = document.getElementById('sidebarTitle');
+        const insightHeaderName = document.getElementById('insightHeaderName');
+
+        const navInsights = document.getElementById('navInsights');
+        const navData = document.getElementById('navData');
+        const navShifts = document.getElementById('navShifts');
+        
+        const fileInput = document.getElementById('fileInput');
+        const uploadButton = document.getElementById('uploadButton');
+        const uploaderCard = document.getElementById('uploaderCard');
+        
+        const attendanceTable = document.getElementById('attendanceTable');
+        const tableBody = document.getElementById('tableBody');
+        const tablePlaceholder = document.getElementById('tablePlaceholder');
+        
+        const employeeList = document.getElementById('employeeList');
+        const employeeListPlaceholder = document.getElementById('employeeListPlaceholder');
+        
+        const messageToast = document.getElementById('messageToast');
+        const messageText = document.getElementById('messageText');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        
+        const dashboardMonth = document.getElementById('dashboardMonth');
+        const dashboardStats = document.getElementById('dashboardStats');
+        
+        const filterName = document.getElementById('filterName');
+        const statusFilter = document.getElementById('statusFilter');
+        const remarkFilter = document.getElementById('remarkFilter'); 
+        const filterDateStart = document.getElementById('filterDateStart');
+        const filterDateEnd = document.getElementById('filterDateEnd');
+        const missedPunchButton = document.getElementById('missedPunchButton');
+        const resetButton = document.getElementById('resetButton');
+        const exportButton = document.getElementById('exportButton');
+        
+        const paginationControls = document.getElementById('paginationControls');
+        const paginationInfo = document.getElementById('paginationInfo');
+        const prevButton = document.getElementById('prevButton');
+        const nextButton = document.getElementById('nextButton');
+        
+        const editModal = document.getElementById('editModal');
+        const editForm = document.getElementById('editForm');
+        const closeModalButton = document.getElementById('closeModalButton');
+        const cancelModalButton = document.getElementById('cancelModalButton');
+        const punchListContainer = document.getElementById('punchListContainer');
+        const noPunchesText = document.getElementById('noPunchesText');
+        const addPunchRow = document.getElementById('addPunchRow'); 
+        const loadShiftDefaults = document.getElementById('loadShiftDefaults');
+        
+        const exportModal = document.getElementById('exportModal');
+        const exportForm = document.getElementById('exportForm');
+        const closeExportModalButton = document.getElementById('closeExportModalButton');
+        const cancelExportButton = document.getElementById('cancelExportButton');
+        const confirmExportButton = document.getElementById('confirmExportButton');
+        const exportDateStart = document.getElementById('exportDateStart');
+        const exportDateEnd = document.getElementById('exportDateEnd');
+        
+        const shiftListContainer = document.getElementById('shiftListContainer');
+        const shiftListPlaceholder = document.getElementById('shiftListPlaceholder');
+
+        const monthlyChartTitle = document.getElementById('chart1Title');
+        const workHoursChartTitle = document.getElementById('chart2Title');
+        let chart1Canvas = document.getElementById('chart1Canvas'); 
+        let chart2Canvas = document.getElementById('chart2Canvas'); 
+
+        let monthlyChartInstance = null;
+        let workHoursChartInstance = null;
+        let sortable = null;
+
+        // --- State ---
+        let currentTableData = [];
+        let currentPage = 1;
+        let currentView = 'insightsView';
+
+        let currentFilters = {
+            employeeName: '',
+            dateStart: '',
+            dateEnd: '',
+            employeeID: '', 
+            missedPunchesOnly: false,
+            longBreakOnly: false, 
+            lateRuleFilter: false, 
+            statusFilter: '',
+            remarkFilter: '' 
+        };
+        let currentInsightEmployeeID = '';
+        let allEmployees = [];
+        let shiftDefinitions = {};
+
+
+        // --- Utility ---
+        
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                const context = this;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(context, args), wait);
+            };
+        }
+
+        function showLoading(show) {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        function showMessage(message, type = 'success') {
+            const icons = {
+                success: document.getElementById('messageIcon_success'),
+                error: document.getElementById('messageIcon_error'),
+                info: document.getElementById('messageIcon_info'),
+                note: document.getElementById('messageIcon_info')
+            };
+            
+            messageText.textContent = message;
+            
+            Object.values(icons).forEach(icon => icon.classList.add('hidden'));
+            messageToast.classList.remove('bg-green-600', 'bg-red-600', 'bg-blue-600', 'translate-y-20', 'opacity-0', 'invisible');
+
+            if (type === 'success') {
+                messageToast.classList.add('bg-green-600');
+                icons.success.classList.remove('hidden');
+            } else if (type === 'error') {
+                messageToast.classList.add('bg-red-600');
+                icons.error.classList.remove('hidden');
+            } else {
+                messageToast.classList.add('bg-blue-600');
+                icons.info.classList.remove('hidden');
+            }
+
+            messageToast.classList.remove('translate-y-20', 'opacity-0', 'invisible');
+            setTimeout(() => {
+                messageToast.classList.add('translate-y-20', 'opacity-0', 'invisible');
+            }, 5000);
+        }
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+        
+        function formatMonth(date) {
+            return date.toISOString().substring(0, 7);
+        }
+        
+        function getFriendlyMonthName(monthString) {
+            const date = new Date(monthString + '-02');
+            return date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        }
+        
+        // --- Navigation ---
+        
+        function switchView(viewName) {
+            currentView = viewName;
+
+            insightsView.classList.add('hidden');
+            dataView.classList.add('hidden');
+            shiftView.classList.add('hidden');
+            employeeListSidebar.classList.add('hidden');
+            
+            navInsights.classList.remove('active');
+            navData.classList.remove('active');
+            navShifts.classList.remove('active');
+            
+            document.querySelectorAll('.employee-list-item').forEach(el => el.classList.remove('active'));
+
+            if (viewName === 'insightsView') {
+                appShell.style.gridTemplateColumns = '64px 240px 1fr';
+                mainContentArea.style.gridColumn = '3 / -1'; 
+                
+                insightsView.classList.remove('hidden');
+                employeeListSidebar.classList.remove('hidden');
+                navInsights.classList.add('active');
+                sidebarTitle.textContent = "Select Employee";
+                
+                renderEmployeeList(allEmployees, currentView);
+
+                const overallButton = document.getElementById('overallEmployeeButton');
+                if (overallButton && !currentInsightEmployeeID) overallButton.classList.add('active');
+
+                updateInsightView(currentInsightEmployeeID);
+
+            } else if (viewName === 'dataView') {
+                appShell.style.gridTemplateColumns = '64px 240px 1fr';
+                mainContentArea.style.gridColumn = '3 / -1';
+                
+                dataView.classList.remove('hidden');
+                employeeListSidebar.classList.remove('hidden');
+                navData.classList.add('active');
+                sidebarTitle.textContent = "Filter by Employee";
+                
+                renderEmployeeList(allEmployees, currentView);
+
+                if (!currentFilters.employeeID) {
+                    const allDataButton = document.getElementById('allDataEmployeeButton');
+                    if (allDataButton) allDataButton.classList.add('active');
+                }
+
+                if (currentTableData.length === 0) {
+                    fetchRecords();
+                }
+            } else if (viewName === 'shiftView') {
+                appShell.style.gridTemplateColumns = '64px 1fr';
+                mainContentArea.style.gridColumn = '2 / -1';
+                shiftView.classList.remove('hidden');
+                navShifts.classList.add('active');
+                fetchShiftDefinitions();
+            }
+        }
+
+        // --- File Parsing (UPDATED for Smart Scan) ---
+        function excelSerialToDate(serial) { 
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const excelDays = Math.floor(serial);
+            const msInDay = 24 * 60 * 60 * 1000;
+            const localDate = new Date(excelEpoch.getTime() + excelDays * msInDay);
+            const fractionalDay = serial - excelDays;
+            const totalSeconds = Math.round(86400 * fractionalDay);
+            const seconds = totalSeconds % 60;
+            const minutes = Math.floor(totalSeconds / 60) % 60;
+            const hours = Math.floor(totalSeconds / 3600);
+            return new Date(localDate.getFullYear(), localDate.getMonth(), localDate.getDate(), hours, minutes, seconds);
+        }
+
+        function parseFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                const fileExtension = file.name.split('.').pop().toLowerCase();
+                
+                reader.onload = (e) => {
+                    try {
+                        const data = e.target.result;
+                        let rows = [];
+                        
+                        if (fileExtension === 'csv') {
+                            const result = Papa.parse(data, { skipEmptyLines: true });
+                            rows = result.data;
+                        } else if (fileExtension === 'xls' || fileExtension === 'xlsx') {
+                            const workbook = XLSX.read(data, { type: 'array', cellDates: false });
+                            const sheetName = workbook.SheetNames[0];
+                            const worksheet = workbook.Sheets[sheetName]; 
+                            rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
+                        } else { 
+                            return reject(new Error('Unsupported file type. Please use CSV, XLS, or XLSX.')); 
+                        }
+                        
+                        const parsedData = parseData(rows);
+                        if (parsedData.length === 0) { 
+                            return reject(new Error('No valid data found. Check your Excel headers (must contain "E. Code" and "Punch Records").')); 
+                        }
+                        resolve(parsedData);
+                    } catch (err) { 
+                        reject(new Error(`File parsing error: ${err.message}`)); 
+                    }
+                };
+                
+                reader.onerror = (err) => reject(new Error('Failed to read the file.'));
+                
+                if (fileExtension === 'csv') { 
+                    reader.readAsText(file); 
+                } else { 
+                    reader.readAsArrayBuffer(file); 
+                }
+            });
+        }
+        
+        function cleanValue(value) { if (value === null || typeof value === 'undefined') { return null; } let str = String(value).trim(); return str === '' ? null : str; }
+        
+        function formatTime(timeStr) { 
+            const val = cleanValue(timeStr); 
+            if (!val) return null; 
+            const numericVal = parseFloat(val); 
+            if (!isNaN(numericVal) && numericVal >= 0 && numericVal < 1) { 
+                const totalSeconds = Math.round(numericVal * 86400); 
+                const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0'); 
+                const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0'); 
+                const s = (totalSeconds % 60).toString().padStart(2, '0'); 
+                return `${h}:${m}:${s}`; 
+            } 
+            const parts = val.split(':').map(part => part.padStart(2, '0')); 
+            if (parts.length === 2) { return `${parts[0]}:${parts[1]}:00`; } 
+            if (parts.length === 3) { return `${parts[0]}:${parts[1]}:${parts[2]}`; } 
+            if (val.length === 6 && !val.includes(':')) { return `${val.substring(0,2)}:${val.substring(2,4)}:${val.substring(4,6)}`; } 
+            if (val === '0' || val === '00:00') { return '00:00:00'; } 
+            return null; 
+        }
+
+        // --- SMART HEADER SCAN v3 (For E. Code + Punch Records format) ---
+        function parseData(rows) { 
+            let records = []; 
+            let currentDate = null; 
+            let headers = {}; 
+            let headerRowIndex = -1;
+
+            // 1. Scan for Headers
+            // The user specific headers are: E. Code, Name, Punch Records
+            const MAX_SCAN_DEPTH = 30;
+            for (let i = 0; i < Math.min(rows.length, MAX_SCAN_DEPTH); i++) {
+                const row = rows[i].map(val => String(val).trim());
+                
+                // Detection logic: Must have "E. Code" AND "Punch Records"
+                if (row.includes('E. Code') && row.includes('Punch Records')) {
+                    headerRowIndex = i;
+                    row.forEach((colName, index) => {
+                        if (colName) headers[colName] = index;
+                    });
+                    break;
+                }
+            }
+
+            if (headerRowIndex === -1) {
+                // If we didn't find the exact headers, maybe try row 0
+                return []; 
+            }
+
+            // 2. Determine Key Mappings
+            const keyECode = "E. Code";
+            const keyName = "Name";
+            const keyPunches = "Punch Records";
+            const keyShift = "Shift";
+            const keySIn = "S. InTime";
+            const keySOut = "S. OutTime";
+            const keyStatus = "Status";
+
+            // 3. Process Data
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const cleanRow = row.map(val => String(val).trim());
+
+                // Check if this row contains the DATE (Parent Row)
+                // Common format: "Attendance Date : 2025-10-01"
+                const rowString = cleanRow.join(' ');
+                if (rowString.includes('Attendance Date')) {
+                    // Try to find the date string
+                    // Look for format YYYY-MM-DD or DD-MM-YYYY or DD-MMM-YYYY
+                    const dateMatch = rowString.match(/(\d{4}-\d{2}-\d{2})/) || 
+                                           rowString.match(/(\d{2}-\d{2}-\d{4})/) ||
+                                           rowString.match(/(\d{2}-[A-Za-z]{3}-\d{4})/);
+                    
+                    if (dateMatch) {
+                        let rawDate = dateMatch[0];
+                        // Normalize date to YYYY-MM-DD
+                        try {
+                            const dateObj = new Date(rawDate);
+                            if (!isNaN(dateObj.getTime())) {
+                                currentDate = formatDate(dateObj);
+                            }
+                        } catch (e) { console.warn('Date parse error', e); }
+                    }
+                    continue; // Skip the date row itself
+                }
+
+                // If we are past the header row and we have a valid Date
+                if (i > headerRowIndex && currentDate) {
+                    const eCode = cleanValue(row[headers[keyECode]]); 
+                    const name = cleanValue(row[headers[keyName]]) || (eCode ? `Employee ${eCode}` : null); 
+                    
+                    if (!eCode) { continue; } // Skip empty rows
+                    
+                    const eCodeNum = parseFloat(eCode); 
+                    if (isNaN(eCodeNum)) { continue; } // Skip invalid employee IDs
+                    
+                    const punches = cleanValue(row[headers[keyPunches]]) || ""; 
+                    const smartPunches = applySmartScan(punches); 
+                    
+                    let actualIn = null; 
+                    let actualOut = null; 
+                    
+                    if (smartPunches.length > 0) { actualIn = smartPunches[0].time; } 
+                    if (smartPunches.length > 1) { actualOut = smartPunches[smartPunches.length - 1].time; } 
+                    
+                    records.push({ 
+                        date: currentDate, 
+                        eCode: eCodeNum, 
+                        name: name, 
+                        shift: cleanValue(row[headers[keyShift]]), 
+                        sInTime: formatTime(row[headers[keySIn]]), 
+                        sOutTime: formatTime(row[headers[keySOut]]), 
+                        aInTime: formatTime(actualIn), 
+                        aOutTime: formatTime(actualOut), 
+                        workDur: null, 
+                        ot: null, 
+                        totDur: null, 
+                        lateBy: null, 
+                        earlyGoingBy: null, 
+                        status: cleanValue(row[headers[keyStatus]]), 
+                        punchRecords: smartPunches.map(p => `${p.time}:${p.type}`).join(',') 
+                    }); 
+                }
+            } 
+            return records; 
+        }
+        
+        function applySmartScan(punchString) { 
+            if (!punchString) return []; 
+            const punchRegex = /(\d{2}:\d{2}(?::\d{2})?):(in|out)/g; 
+            let matches = []; 
+            let match; 
+            while ((match = punchRegex.exec(punchString)) !== null) { 
+                matches.push({ 
+                    full: match[0], 
+                    time: match[1].split(':').length === 2 ? `${match[1]}:00` : match[1], 
+                    type: match[2] 
+                }); 
+            } 
+            if (matches.length === 0) return []; 
+            
+            matches.sort((a, b) => a.time.localeCompare(b.time)); 
+            
+            let uniqueTimePunches = []; 
+            let seenTimes = new Set(); 
+            for (const punch of matches) { 
+                if (!seenTimes.has(punch.time)) { 
+                    uniqueTimePunches.push(punch); 
+                    seenTimes.add(punch.time); 
+                } 
+            } 
+            if (uniqueTimePunches.length === 0) return []; 
+            
+            let filteredPunches = [uniqueTimePunches[0]]; 
+            let lastPunchTime = new Date(`1970-01-01T${uniqueTimePunches[0].time}Z`).getTime(); 
+            for (let i = 1; i < uniqueTimePunches.length; i++) { 
+                let currentPunchTime = new Date(`1970-01-01T${uniqueTimePunches[i].time}Z`).getTime(); 
+                let diffInSeconds = (currentPunchTime - lastPunchTime) / 1000; 
+                if (diffInSeconds > PUNCH_TIME_GAP_SECONDS) { 
+                    filteredPunches.push(uniqueTimePunches[i]); 
+                    lastPunchTime = currentPunchTime; 
+                } 
+            } 
+            return filteredPunches; 
+        }
+
+        // --- Data Upload ---
+        
+        async function handleFileUpload() {
+            const file = fileInput.files[0];
+            if (!file) {
+                showMessage('Please select a file first.', 'error');
+                return;
+            }
+            showLoading(true);
+            try {
+                const records = await parseFile(file);
+                await saveRecords(records);
+                showMessage(`Successfully processed and saved ${records.length} records.`, 'success');
+                resetFiltersAndFetch();
+                await fetchDashboardStats(currentInsightEmployeeID);
+                await fetchEmployees();
+                await fetchOverallCharts();
+            } catch (error) {
+                console.error('Processing error:', error);
+                showMessage(error.message, 'error');
+            } finally {
+                showLoading(false);
+                fileInput.value = '';
+            }
+        }
+        async function saveRecords(records) {
+            if (!records || records.length === 0) { throw new Error('No records to save.'); }
+            try {
+                const response = await fetch(`${API_URL}?action=batchSave`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(records)
+                });
+                const result = await response.json();
+                if (response.ok && result.status === 'success') {
+                    return result;
+                } else {
+                    throw new Error(`Failed to save data: ${result.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('API Save Error:', error);
+                throw new Error(`Failed to save data: ${error.message}`);
+            }
+        }
+        
+        // --- Employee Fetching & Rendering (No change) ---
+        
+        async function fetchEmployees() {
+            employeeListPlaceholder.classList.remove('hidden');
+            employeeList.innerHTML = '';
+            
+            try {
+                const response = await fetch(`${API_URL}?action=getEmployees`);
+                if (!response.ok) { throw new Error(`Network error: ${response.statusText}`); }
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    allEmployees = result.data;
+                    renderEmployeeList(result.data, currentView);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                 employeeListPlaceholder.textContent = `Failed to load employees: ${error.message}`;
+                 console.error('Fetch Employees Error:', error);
+            }
+        }
+        
+        function renderEmployeeList(employees, viewName) {
+            employeeList.innerHTML = '';
+            employeeListPlaceholder.classList.add('hidden');
+            
+            // Overall/All Button
+            const allButton = document.createElement('button');
+            allButton.id = viewName === 'insightsView' ? 'overallEmployeeButton' : 'allDataEmployeeButton';
+            allButton.className = 'employee-list-item block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100';
+            allButton.textContent = viewName === 'insightsView' ? 'Overall Company' : 'All Employees';
+            
+            const isActive = (viewName === 'insightsView' && !currentInsightEmployeeID) || (viewName === 'dataView' && !currentFilters.employeeID);
+            if (isActive) allButton.classList.add('active');
+
+            allButton.addEventListener('click', () => {
+                document.querySelectorAll('.employee-list-item').forEach(el => el.classList.remove('active'));
+                allButton.classList.add('active');
+                if (viewName === 'dataView') {
+                    currentFilters.employeeID = '';
+                    currentPage = 1;
+                    fetchRecords();
+                } else if (viewName === 'insightsView') {
+                    currentInsightEmployeeID = '';
+                    updateInsightView('');
+                }
+            });
+            employeeList.appendChild(allButton);
+            
+            // Individual Employee Buttons
+            employees.forEach(emp => {
+                const button = document.createElement('button');
+                button.className = 'employee-list-item block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100';
+                button.textContent = emp.EmployeeName;
+                button.dataset.id = emp.EmployeeID;
+                
+                const isActive = (viewName === 'dataView' && currentFilters.employeeID == emp.EmployeeID) || (viewName === 'insightsView' && currentInsightEmployeeID == emp.EmployeeID);
+                if (isActive) button.classList.add('active');
+                
+                button.addEventListener('click', () => {
+                    document.querySelectorAll('.employee-list-item').forEach(el => el.classList.remove('active'));
+                    button.classList.add('active');
+                    if (viewName === 'dataView') {
+                        currentFilters.employeeID = emp.EmployeeID;
+                        currentPage = 1;
+                        fetchRecords();
+                    } else if (viewName === 'insightsView') {
+                        currentInsightEmployeeID = emp.EmployeeID;
+                        updateInsightView(emp.EmployeeID, emp.EmployeeName);
+                    }
+                });
+                employeeList.appendChild(button);
+            });
+        }
+        
+        // --- Record Fetching & Table Rendering ---
+
+        async function fetchRecords(exportFilters = null) {
+            if (!exportFilters) {
+                showLoading(true);
+                tablePlaceholder.textContent = 'Loading records...';
+                tablePlaceholder.classList.remove('hidden');
+                attendanceTable.classList.add('hidden');
+                paginationControls.classList.add('hidden');
+            }
+
+            const filters = exportFilters ? exportFilters : currentFilters;
+            
+            const params = new URLSearchParams({
+                action: 'getRecords',
+                ...filters
+            });
+
+            if (!exportFilters) {
+                 params.append('page', currentPage);
+                 params.append('limit', RECORDS_PER_PAGE);
+            }
+
+            try {
+                const response = await fetch(`${API_URL}?${params.toString()}`);
+                if (!response.ok) { throw new Error(`Network error: ${response.statusText}`); }
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    if (exportFilters) { return result.data; } 
+                    currentTableData = result.data;
+                    renderTable(result.data);
+                    updatePaginationControls(result.pagination);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('Fetch Error:', error);
+                if (!exportFilters) {
+                    showMessage(`Failed to load records: ${error.message}`, 'error');
+                    tablePlaceholder.textContent = 'Failed to load records.';
+                } else {
+                    throw error;
+                }
+            } finally {
+                if (!exportFilters) {
+                    showLoading(false);
+                }
+            }
+        }
+        
+        function renderTable(data) {
+            if (data.length === 0) {
+                tablePlaceholder.textContent = 'No records found matching your filters.';
+                tablePlaceholder.classList.remove('hidden');
+                attendanceTable.classList.add('hidden');
+                paginationControls.classList.add('hidden');
+                return;
+            }
+
+            tablePlaceholder.classList.add('hidden');
+            attendanceTable.classList.remove('hidden');
+            paginationControls.classList.remove('hidden');
+            tableBody.innerHTML = '';
+
+            data.forEach((row, index) => {
+                const tr = document.createElement('tr'); 
+                
+                const punchCount = row.PunchRecords ? row.PunchRecords.split(',').length : 0;
+                const isMissedPunch = row.PunchRecords && (punchCount % 2 !== 0);
+                
+                if (isMissedPunch) {
+                    tr.className = 'bg-red-50 hover:bg-red-100';
+                    tr.setAttribute('title', `Warning: Odd number of total punches (${punchCount}). Check data.`);
+                } else {
+                     tr.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-100 hover:bg-gray-200';
+                }
+                
+                const schInOut = `${row.ScheduledIn ? row.ScheduledIn.substring(0, 5) : '-'} / ${row.ScheduledOut ? row.ScheduledOut.substring(0, 5) : '-'}`;
+                const actInOut = `${row.ActualIn ? row.ActualIn.substring(0, 5) : '-'} / ${row.ActualOut ? row.ActualOut.substring(0, 5) : '-'}`;
+
+                const lateByClass = row.LateBy && row.LateBy !== '00:00:00' ? 'text-red-600' : 'text-gray-500';
+                const earlyGoingByClass = row.EarlyGoingBy && row.EarlyGoingBy !== '00:00:00' ? 'text-red-600' : 'text-gray-500';
+
+                // Format Late Remark display
+                let remarkHtml = '-';
+                if (row.LateRemark) {
+                    let remarkClass = 'text-gray-700';
+                    if (row.LateRemark.includes('Half Day')) {
+                        remarkClass = 'text-red-700 font-bold bg-red-100 px-2 py-0.5 rounded';
+                    } else if (row.LateRemark.includes('Late')) {
+                        remarkClass = 'text-orange-700 font-medium bg-orange-50 px-2 py-0.5 rounded';
+                    }
+                    remarkHtml = `<span class="${remarkClass}">${row.LateRemark}</span>`;
+                }
+
+                tr.innerHTML += `
+                    <td class="pl-4 pr-3 py-2 text-sm font-medium text-gray-900 whitespace-nowrap sticky left-0 bg-inherit">${row.EmployeeName}</td>
+                    <td class="px-2 py-2 text-sm text-gray-500 whitespace-nowrap">${row.AttendanceDate}</td>
+                    <td class="px-2 py-2 text-sm text-gray-500 whitespace-nowrap">${schInOut}</td>
+                    <td class="px-2 py-2 text-sm text-gray-500 whitespace-nowrap">${actInOut}</td>
+                    
+                    <td class="px-2 py-2 text-sm text-indigo-700 font-bold whitespace-nowrap">${row.NetWorkDuration || '-'}</td> 
+                    
+                    <td class="px-2 py-2 text-sm ${lateByClass} font-medium whitespace-nowrap">${row.LateBy ? row.LateBy.substring(0, 5) : '-'}</td>
+                    <td class="px-2 py-2 text-sm ${earlyGoingByClass} font-medium whitespace-nowrap">${row.EarlyGoingBy ? row.EarlyGoingBy.substring(0, 5) : '-'}</td>
+                    
+                    <td class="px-2 py-2 text-sm text-gray-500 whitespace-nowrap">${row.ActualBreak ? row.ActualBreak.substring(0, 5) : '-'}</td>
+                    <td class="px-2 py-2 text-sm text-green-700 font-medium whitespace-nowrap">${row.AdjustedOvertime ? row.AdjustedOvertime.substring(0, 5) : '-'}</td>
+                    <td class="px-2 py-2 text-sm text-gray-500 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getValidStatusClass(row.Status)}">
+                            ${row.Status || 'N/A'}
+                        </span>
+                    </td>
+                    <td class="px-2 py-2 text-sm whitespace-nowrap bg-yellow-50">${remarkHtml}</td>
+                    <td class="relative py-2 pl-3 pr-4 text-right text-sm font-medium whitespace-nowrap">
+                        <button class="edit-btn text-blue-600 hover:text-blue-900" data-log-id="${row.LogID}">
+                            Edit
+                        </button>
+                    </td>
+                `;
+                
+                tableBody.appendChild(tr);
+            });
+            
+            tableBody.querySelectorAll('.edit-btn').forEach(button => {
+                button.addEventListener('click', () => openEditModal(button.dataset.logId));
+            });
+        }
+        
+        function getValidStatusClass(status) {
+            const s = (status || '').toLowerCase();
+            if (s.includes('present')) return 'bg-green-100 text-green-800';
+            if (s === 'absent') return 'bg-red-100 text-red-800';
+            if (s === 'weeklyoff' || s.includes('off')) return 'bg-blue-100 text-blue-800';
+            if (s === 'leave') return 'bg-yellow-100 text-yellow-800';
+            return 'bg-gray-100 text-gray-800';
+        }
+
+        function updatePaginationControls(pagination) {
+            const { page, totalPages, totalRecords, limit } = pagination;
+            if (totalRecords === 0) {
+                paginationInfo.textContent = 'No results';
+                prevButton.disabled = true;
+                nextButton.disabled = true;
+                return;
+            }
+            const start = (page - 1) * limit + 1;
+            const end = Math.min(page * limit, totalRecords);
+            paginationInfo.innerHTML = `Showing <span class="font-medium">${start}</span> to <span class="font-medium">${end}</span> of <span class="font-medium">${totalRecords}</span> results`;
+            prevButton.disabled = (page <= 1);
+            nextButton.disabled = (page >= totalPages);
+        }
+
+        const debouncedFilter = debounce(handleFilter, 300); 
+        
+        function handleFilter() {
+            currentPage = 1;
+            currentFilters.employeeName = filterName.value.trim();
+            currentFilters.dateStart = filterDateStart.value;
+            currentFilters.dateEnd = filterDateEnd.value;
+            currentFilters.statusFilter = statusFilter.value;
+            currentFilters.remarkFilter = remarkFilter.value; 
+            currentFilters.longBreakOnly = false; 
+            currentFilters.lateRuleFilter = false; 
+            fetchRecords();
+        }
+
+        function clearAllFilters() {
+            filterName.value = '';
+            filterDateStart.value = '';
+            filterDateEnd.value = '';
+            statusFilter.value = '';
+            remarkFilter.value = ''; 
+            currentFilters = { employeeName: '', dateStart: '', dateEnd: '', employeeID: '', missedPunchesOnly: false, longBreakOnly: false, lateRuleFilter: false, statusFilter: '', remarkFilter: '' };
+            currentPage = 1;
+            
+            missedPunchButton.classList.remove('active');
+            document.querySelectorAll('.employee-list-item').forEach(el => el.classList.remove('active'));
+            const allButton = document.getElementById('allDataEmployeeButton');
+            if (allButton) {
+                allButton.classList.add('active');
+            }
+        }
+
+        function resetFiltersAndFetch() {
+            clearAllFilters();
+            fetchRecords();
+        }
+
+        // --- INSIGHTS FUNCTIONS ---
+        
+        function getEmployeeNameByID(employeeID) {
+            if (!employeeID) return 'Overall';
+            const employee = allEmployees.find(e => e.EmployeeID == employeeID);
+            return employee ? employee.EmployeeName : 'Employee';
+        }
+        
+        async function updateInsightView(employeeID, employeeName = '') {
+            currentInsightEmployeeID = employeeID;
+            
+            if (!employeeName) {
+                employeeName = getEmployeeNameByID(employeeID);
+            }
+
+            insightHeaderName.textContent = employeeName;
+            
+            if (employeeID) {
+                uploaderCard.classList.add('hidden');
+            } else {
+                uploaderCard.classList.remove('hidden');
+            }
+
+            await fetchDashboardStats(employeeID);
+            
+            if (monthlyChartInstance) monthlyChartInstance.destroy();
+            if (workHoursChartInstance) workHoursChartInstance.destroy();
+
+            chart1Canvas.parentElement.innerHTML = '<canvas id="chart1Canvas"></canvas>';
+            chart2Canvas.parentElement.innerHTML = '<canvas id="chart2Canvas"></canvas>';
+
+            chart1Canvas = document.getElementById('chart1Canvas'); 
+            chart2Canvas = document.getElementById('chart2Canvas');
+
+            if (!employeeID) {
+                monthlyChartTitle.textContent = "Daily Attendance";
+                workHoursChartTitle.textContent = "Top 5 by Average Break Minutes (Adj.)";
+                await fetchOverallCharts();
+            } else {
+                monthlyChartTitle.textContent = "Daily Performance (Hours)";
+                workHoursChartTitle.textContent = "Daily Timing Deviations (in min)";
+                await fetchEmployeeAttendanceChart(employeeID);
+            }
+        }
+        
+        async function fetchDashboardStats(employeeID = '') {
+            const month = dashboardMonth.value;
+            const url = `${API_URL}?action=getDashboardStats&month=${month}&employeeID=${employeeID}`;
+            
+            // Skeleton loader updated for 8 cards
+            dashboardStats.innerHTML = Array(8).fill('<div class="p-4 bg-white rounded-lg animate-pulse h-[108px] border border-gray-200 col-span-1"></div>').join('');
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) { throw new Error(`Network error: ${response.statusText}`); }
+                const result = await response.json();
+                if (result.status === 'success') {
+                    renderDashboard(result.stats);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('Dashboard Fetch Error:', error);
+                const errorMessage = error.message.includes('substring') ? "Data formatting error. Check raw API response." : error.message;
+                dashboardStats.innerHTML = `<p class="text-red-500 col-span-4">Failed to load insights: ${errorMessage}</p>`;
+            }
+        }
+        
+        // --- UPDATED RENDER DASHBOARD ---
+        function renderDashboard(stats) {
+            dashboardStats.innerHTML = '';
+            
+            // 1. Total Employees (Only if overall)
+            if (!currentInsightEmployeeID) {
+                dashboardStats.appendChild(createStatCard('Total Employees', stats.totalEmployees, 'users', 'bg-blue-100 text-blue-600'));
+            }
+            
+            // 2. Present (Clickable)
+            const presentCard = createStatCard('Total Present', stats.present, 'user-check', 'bg-green-100 text-green-600', true, 'Filter by Present');
+            presentCard.addEventListener('click', () => applyQuickFilter({ statusFilter: 'Present' }));
+            dashboardStats.appendChild(presentCard);
+
+            // 3. Absent (Clickable)
+            const absentCard = createStatCard('Total Absent', stats.absent, 'user-x', 'bg-red-100 text-red-800', true, 'Filter by Absent');
+            absentCard.addEventListener('click', () => applyQuickFilter({ statusFilter: 'Absent' }));
+            dashboardStats.appendChild(absentCard);
+            
+            // 4. Leave/Off (Clickable - NEW)
+            const leaveOffCard = createStatCard('On Leave / Off', stats.leaveOrOff, 'calendar', 'bg-yellow-100 text-yellow-800', true, 'Filter by Leave or Weekly Off');
+            leaveOffCard.addEventListener('click', () => applyQuickFilter({ statusFilter: 'LeaveOrOff' }));
+            dashboardStats.appendChild(leaveOffCard);
+
+            // 5. Missed Punches (Clickable - NEW)
+            const missedCard = createStatCard('Missed Punches', stats.missedPunches, 'alert-triangle', 'bg-purple-100 text-purple-600', true, 'Show records with missing punches');
+            missedCard.addEventListener('click', () => applyQuickFilter({ missedPunchesOnly: true }));
+            dashboardStats.appendChild(missedCard);
+            
+            // 6. Total Late By (Not clickable)
+            dashboardStats.appendChild(createStatCard('Total Late By', (stats.totalLateBy || '-').substring(0, 5), 'clock', 'bg-indigo-100 text-indigo-600', false, 'Sum of all official tardiness/late arrivals.'));
+
+            // 7. Late Rule Action (Clickable)
+            const lateRuleCard = createStatCard('Late Rule Action', stats.lateRuleActionCount, 'alert-circle', 'bg-red-100 text-red-600', true, 'Count of penalties based on new rules.');
+            lateRuleCard.addEventListener('click', () => applyQuickFilter({ lateRuleFilter: true }));
+            dashboardStats.appendChild(lateRuleCard);
+
+            // 8. Long Breaks (Clickable)
+            const longAdjustedBreakCard = createStatCard('Long Breaks > 60m', stats.longAdjustedBreaks, 'clock', 'bg-orange-100 text-orange-600', true, 'Records where break is over 60 minutes.');
+            longAdjustedBreakCard.addEventListener('click', () => applyQuickFilter({ longBreakOnly: true }));
+            dashboardStats.appendChild(longAdjustedBreakCard);
+        }
+        
+        // Helper to switch view and filter
+        function applyQuickFilter(filterObj) {
+            switchView('dataView');
+            clearAllFilters();
+            
+            // Merge new filters
+            Object.assign(currentFilters, filterObj);
+            
+            // Retain employee ID if selected in dashboard
+            currentFilters.employeeID = currentInsightEmployeeID;
+            
+            // Set date range to current dashboard month
+            const month = dashboardMonth.value;
+            const startDate = `${month}-01`;
+            const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).getDate();
+            const endDateStr = `${month}-${endDate.toString().padStart(2, '0')}`;
+            
+            currentFilters.dateStart = startDate;
+            currentFilters.dateEnd = endDateStr;
+            
+            // Update UI inputs
+            filterDateStart.value = startDate;
+            filterDateEnd.value = endDateStr;
+            if (filterObj.statusFilter && filterObj.statusFilter !== 'LeaveOrOff') statusFilter.value = filterObj.statusFilter;
+            
+            fetchRecords();
+        }
+        
+        function createStatCard(title, value, icon, colorClass, isClickable = false, tooltip = '') {
+            const div = document.createElement('div');
+            let classes = 'flex items-center p-4 bg-white rounded-lg shadow-sm border border-gray-200 col-span-1';
+            if (isClickable) {
+                classes += ' dash-card-clickable';
+            }
+            div.className = classes;
+            div.title = tooltip;
+            
+            const icons = {
+                'users': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+                'user-check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>',
+                'user-x': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/></svg>',
+                'alert-triangle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>',
+                'alert-circle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+                'clock': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+                'calendar': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>'
+            };
+            div.innerHTML = `<div class="dash-icon ${colorClass}">${icons[icon] || ''}</div><div class="ml-4"><p class="text-sm font-medium text-gray-500">${title}</p><p class="text-2xl font-semibold text-gray-900">${value}</p></div>`;
+            return div;
+        }
+
+        // --- CHART FUNCTIONS (Same as before) ---
+        async function fetchOverallCharts() {
+             const month = dashboardMonth.value;
+            const friendlyMonth = getFriendlyMonthName(month);
+            monthlyChartTitle.textContent = `Daily Attendance (${friendlyMonth})`;
+            workHoursChartTitle.textContent = `Top 5 by Average Break Minutes (Adj.) (${friendlyMonth})`;
+
+            try {
+                const [monthlyRes, breakAbuseRes] = await Promise.all([
+                    fetch(`${API_URL}?action=getMonthlyAttendance&month=${month}`),
+                    fetch(`${API_URL}?action=getBreakAbuseStats&month=${month}`)
+                ]);
+
+                if (!monthlyRes.ok) throw new Error('Failed to load daily attendance.');
+                const monthlyResult = await monthlyRes.json();
+                if (monthlyResult.status === 'success') { renderMonthlyChart(monthlyResult.data); }
+
+                if (!breakAbuseRes.ok) throw new Error('Failed to load break abuse stats.');
+                const breakAbuseResult = await breakAbuseRes.json();
+                if (breakAbuseResult.status === 'success') { renderBreakAbuseChart(breakAbuseResult.data); }
+
+            } catch (error) {
+                console.error("Overall Chart data error:", error);
+                document.getElementById('chart1Canvas').parentElement.innerHTML = `<p class="text-red-500 text-center py-8">Could not load chart: ${error.message}</p>`;
+                document.getElementById('chart2Canvas').parentElement.innerHTML = `<p class="text-red-500 text-center py-8">Could not load chart: ${error.message}</p>`;
+            }
+        }
+
+        function renderMonthlyChart(data) {
+            const ctx = document.getElementById('chart1Canvas').getContext('2d');
+            const labels = data.map(d => d.AttendanceDate.substring(5));
+            if (monthlyChartInstance) { monthlyChartInstance.destroy(); }
+            monthlyChartInstance = new Chart(ctx, {
+                type: 'line', data: { labels: labels, datasets: [
+                    { label: 'Present', data: data.map(d => d.present), borderColor: 'rgb(34, 197, 94)', backgroundColor: 'rgba(34, 197, 94, 0.1)', fill: true, tension: 0.1 },
+                    { label: 'Absent', data: data.map(d => d.absent), borderColor: 'rgb(239, 68, 68)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.1 },
+                    { label: 'Leave/Off', data: data.map(d => d.leaveOrOff), borderColor: 'rgb(234, 179, 8)', backgroundColor: 'rgba(234, 179, 8, 0.1)', fill: true, tension: 0.1 }
+                ]}, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }}
+            });
+        }
+
+        function renderBreakAbuseChart(data) {
+            const ctx = document.getElementById('chart2Canvas').getContext('2d');
+            const labels = data.map(d => d.EmployeeName);
+            const avgMins = data.map(d => d.avgBreakMinutes);
+
+            if (workHoursChartInstance) { workHoursChartInstance.destroy(); }
+            
+            workHoursChartInstance = new Chart(ctx, {
+                type: 'bar', 
+                data: { 
+                    labels: labels, 
+                    datasets: [{
+                        label: 'Avg. Break Minutes (Adjusted)', 
+                        data: avgMins, 
+                        backgroundColor: 'rgba(234, 88, 12, 0.7)', 
+                        borderColor: 'rgba(234, 88, 12, 1)', 
+                        borderWidth: 1
+                    }]
+                }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    indexAxis: 'y', 
+                    scales: { 
+                        x: { 
+                            beginAtZero: true,
+                            title: { display: true, text: 'Average Minutes' }
+                        } 
+                    }
+                }
+            });
+        }
+
+        // --- CHART FUNCTIONS (Per-User View) ---
+
+        async function fetchEmployeeAttendanceChart(employeeID) {
+            const month = dashboardMonth.value;
+            
+            try {
+                const response = await fetch(`${API_URL}?action=getEmployeeAttendanceSummary&month=${month}&employeeID=${employeeID}`);
+                if (!response.ok) throw new Error('Failed to load employee summary data');
+                const result = await response.json();
+                
+                if (result.status === 'success') { 
+                    renderEmployeeWorkChart(result.data);
+                    renderEmployeeTimingChart(result.data); 
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error("Employee Chart data error:", error);
+                 document.getElementById('chart1Canvas').parentElement.innerHTML = `<p class="text-red-500 text-center py-8">Could not load Work/Break chart: ${error.message}</p>`;
+                 document.getElementById('chart2Canvas').parentElement.innerHTML = `<p class="text-red-500 text-center py-8">Could not load Timing chart: ${error.message}</p>`;
+            }
+        }
+        
+        function renderEmployeeWorkChart(data) {
+            const ctx = document.getElementById('chart1Canvas').getContext('2d');
+            const labels = data.map(d => d.AttendanceDate.substring(5));
+            if (monthlyChartInstance) { monthlyChartInstance.destroy(); }
+
+            monthlyChartInstance = new Chart(ctx, {
+                type: 'bar', 
+                data: { 
+                    labels: labels, 
+                    datasets: [
+                        { label: 'Net Work Hours', data: data.map(d => d.workHours), backgroundColor: 'rgba(59, 130, 246, 0.6)', stack: 'Stack 0' },
+                        { label: 'Adjusted OT Hours', data: data.map(d => d.otHours), backgroundColor: 'rgba(168, 85, 247, 0.6)', stack: 'Stack 0' },
+                        { label: 'Adjusted Break Hours', data: data.map(d => d.breakHours), backgroundColor: 'rgba(234, 88, 12, 0.6)', stack: 'Stack 1' }
+                    ]
+                }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    scales: { 
+                        x: { stacked: true },
+                        y: { beginAtZero: true, stacked: false, title: { display: true, text: 'Hours' } }
+                    },
+                    plugins: { tooltip: { mode: 'index', intersect: false } }
+                }
+            });
+        }
+
+        function renderEmployeeTimingChart(data) {
+             const ctx = document.getElementById('chart2Canvas').getContext('2d');
+             const labels = data.map(d => d.AttendanceDate.substring(5));
+
+             const lateIn = data.map(d => d.lateByMinutes > 0 ? -d.lateByMinutes : 0);
+             const earlyOut = data.map(d => d.earlyGoingByMinutes > 0 ? -d.earlyGoingByMinutes : 0);
+             const earlyIn = data.map(d => d.earlyInMinutes);
+             const lateOut = data.map(d => d.lateOutMinutes);
+             
+             const allMins = [...lateIn, ...earlyOut, ...earlyIn, ...lateOut].map(Math.abs);
+             const maxVal = Math.max(...allMins);
+             const maxScale = Math.ceil(maxVal / 5) * 5;
+             const finalMaxScale = Math.max(30, maxScale);
+
+
+             if (workHoursChartInstance) { workHoursChartInstance.destroy(); }
+
+             workHoursChartInstance = new Chart(ctx, {
+                 type: 'line', 
+                 data: { 
+                     labels: labels, 
+                     datasets: [
+                         { 
+                             label: 'Late In (Deviation)', 
+                             data: lateIn, 
+                             borderColor: 'rgb(239, 68, 68)', 
+                             backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                             fill: false, tension: 0.1, pointRadius: 4, 
+                             yAxisID: 'y'
+                         },
+                         { 
+                             label: 'Early Out (Deviation)', 
+                             data: earlyOut, 
+                             borderColor: 'rgb(234, 179, 8)', 
+                             backgroundColor: 'rgba(234, 179, 8, 0.2)',
+                             fill: false, tension: 0.1, pointRadius: 4,
+                             yAxisID: 'y' 
+                         },
+                         { 
+                             label: 'Early In (Compensated)', 
+                             data: earlyIn, 
+                             borderColor: 'rgb(34, 197, 94)', 
+                             backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                             fill: false, tension: 0.1, pointRadius: 4,
+                             yAxisID: 'y'
+                         },
+                         { 
+                             label: 'Late Out (OT)', 
+                             data: lateOut, 
+                             borderColor: 'rgb(168, 85, 247)', 
+                             backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                             fill: false, tension: 0.1, pointRadius: 4,
+                             yAxisID: 'y'
+                         }
+                     ]
+                 }, 
+                 options: { 
+                     responsive: true, 
+                     maintainAspectRatio: false, 
+                     scales: { 
+                         y: { 
+                             type: 'linear',
+                             position: 'left',
+                             min: -finalMaxScale, 
+                             max: finalMaxScale, 
+                             title: { display: true, text: 'Minutes' },
+                             ticks: {
+                                 stepSize: 5, 
+                                 callback: function(value) {
+                                     return value >= 0 ? value : -value; 
+                                 }
+                             }
+                         }
+                     },
+                     plugins: {
+                         tooltip: {
+                             callbacks: {
+                                 label: function(context) {
+                                     let label = context.dataset.label || '';
+                                     if (label) { label += ': '; }
+                                     if (context.parsed.y !== null) { label += Math.abs(context.parsed.y) + ' min'; }
+                                     return label;
+                                 }
+                             }
+                         }
+                     }
+                 }
+             });
+         }
+
+
+        // --- MODAL & PUNCH LOGIC ---
+        function enforcePunchSequence(punches) { if (punches.length === 0) return []; punches.sort((a, b) => a.time.localeCompare(b.time)); let expectedType = 'in'; for (const punch of punches) { punch.type = expectedType; expectedType = (expectedType === 'in') ? 'out' : 'in'; } return punches; }
+        function setModalFields(record) { document.getElementById('editLogID').value = record.LogID; document.getElementById('editEmployeeName').value = record.EmployeeName; document.getElementById('editAttendanceDate').value = record.AttendanceDate; const setVal = (id, val) => { const el = document.getElementById(id); if (el && el.type === 'time' && val) { el.value = val.substring(0, 8); } else if (el.type === 'hidden' || el.type === 'text') { el.value = val || ''; } }; setVal('editStatus', record.Status); setVal('editShift', record.Shift); setVal('editScheduledIn', record.ScheduledIn); setVal('editScheduledOut', record.ScheduledOut); setVal('editActualIn', record.ActualIn); setVal('editActualOut', record.ActualOut); setVal('editEarlyByIn', record.EarlyByIn); setVal('editLateByOut', record.LateByOut); setVal('editActualBreak', record.ActualBreak); setVal('editBreakAdjustment', record.BreakAdjustment); setVal('editAdjustedBreakResult', record.AdjustedBreakResult); setVal('editAdjustedOvertime', record.AdjustedOvertime); setVal('editLateBy', record.LateBy); setVal('editEarlyGoingBy', record.EarlyGoingBy); setVal('editNetWorkDuration', record.NetWorkDuration); setVal('editWorkDuration', record.WorkDuration); setVal('editOvertime', record.Overtime); setVal('editTotalDuration', record.TotalDuration); populatePunchList(record.PunchRecords); }
+        function openEditModal(logID) { const record = currentTableData.find(r => r.LogID == logID); if (!record) { showMessage('Error: Could not find record data.', 'error'); return; } setModalFields(record); if (sortable) { sortable.destroy(); } sortable = new Sortable(punchListContainer, { animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost' }); editModal.classList.remove('hidden'); }
+        function closeEditModal() { editModal.classList.add('hidden'); editForm.reset(); if (sortable) { sortable.destroy(); sortable = null; } }
+        async function handleModalSave(e) { e.preventDefault(); showLoading(true); let allPunches = collectPunchRecords(true); allPunches = enforcePunchSequence(allPunches); let actualIn = allPunches.length > 0 ? allPunches[0].time : null; let actualOut = allPunches.length > 1 ? allPunches[allPunches.length - 1].time : null; const formData = new FormData(editForm); const data = {}; formData.forEach((value, key) => { const el = document.getElementById(`edit${key.charAt(0).toUpperCase() + key.slice(1)}`); if (el && el.type === 'time') { if (value && value.length === 5) { data[key] = `${value}:00`; } else if (value && value.length === 8) { data[key] = value; } else { data[key] = null; } } else { data[key] = value || null; } }); data.logID = document.getElementById('editLogID').value; data.ActualIn = actualIn; data.ActualOut = actualOut; data.PunchRecords = allPunches.map(p => `${p.time}:${p.type}`).join(','); try { const response = await fetch(`${API_URL}?action=updateRecord`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); const result = await response.json(); if (response.ok && (result.status === 'success' || result.status === 'note')) { showMessage(result.message, result.status); closeEditModal(); await fetchRecords(); await fetchDashboardStats(currentInsightEmployeeID); if (!currentInsightEmployeeID) { await fetchOverallCharts(); } else { await fetchEmployeeAttendanceChart(currentInsightEmployeeID); } } else { throw new Error(result.message || 'Failed to update'); } } catch (error) { console.error('Update Error:', error); showMessage(`Failed to update: ${error.message}`, 'error'); } finally { showLoading(false); } }
+        function getActualInOutFromPunches() { const punches = collectPunchRecords(true); return { ActualIn: punches.length > 0 ? punches[0].time : null, ActualOut: punches.length > 1 ? punches[punches.length - 1].time : null, }; }
+        function populatePunchList(punchString) { punchListContainer.innerHTML = ''; const punches = (punchString || '').split(',').map(p => { const parts = p.split(':'); if (parts.length >= 4) { return { time: `${parts[0]}:${parts[1]}:${parts[2]}`, type: parts[3] }; } return null; }).filter(p => p); if (punches.length === 0) { noPunchesText.classList.remove('hidden'); punchListContainer.appendChild(noPunchesText); return; } noPunchesText.classList.add('hidden'); punches.forEach(punch => { createPunchRowElement(punch.time, punch.type); }); }
+        function createPunchRowElement(time, type) { noPunchesText.classList.add('hidden'); const div = document.createElement('div'); div.className = 'punch-row punch-row-data bg-white p-2 rounded border'; const timeVal = time ? time.substring(0, 8) : ''; div.innerHTML = ` <span class="drag-handle" title="Drag to reorder"> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg> </span> <div class="punch-input-group"> <input type="time" step="1" class="punch-time w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm" value="${timeVal}"> </div> <div class="punch-input-group"> <select class="punch-type w-full p-2 border border-gray-300 rounded-md shadow-sm text-sm"> <option value="in" ${type === 'in' ? 'selected' : ''}>IN</option> <option value="out" ${type === 'out' ? 'selected' : ''}>OUT</option> </select> </div> <button type="button" class="delete-punch-btn p-2 text-gray-500 hover:text-red-600 rounded-md hover:bg-red-100"> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg> </button> `; const updateActualInOutDisplay = () => { const { ActualIn, ActualOut } = getActualInOutFromPunches(); document.getElementById('editActualIn').value = ActualIn ? ActualIn.substring(0, 5) : ''; document.getElementById('editActualOut').value = ActualOut ? ActualOut.substring(0, 5) : ''; }; div.querySelector('.delete-punch-btn').addEventListener('click', (e) => { e.currentTarget.closest('.punch-row').remove(); if (punchListContainer.querySelectorAll('.punch-row-data').length === 0) { noPunchesText.classList.remove('hidden'); punchListContainer.appendChild(noPunchesText); } updateActualInOutDisplay(); }); div.querySelector('.punch-time').addEventListener('change', updateActualInOutDisplay); div.querySelector('.punch-type').addEventListener('change', updateActualInOutDisplay); punchListContainer.appendChild(div); }
+        function collectPunchRecords(asObjects = false) { const punchRows = punchListContainer.querySelectorAll('.punch-row-data'); let punches = []; punchRows.forEach(row => { const time = row.querySelector('.punch-time').value; const type = row.querySelector('.punch-type').value; if (time) { punches.push({ time: (time.length === 5 ? `${time}:00` : time), type: type }); } }); punches.sort((a, b) => a.time.localeCompare(b.time)); if (asObjects) { return punches; } return punches.map(p => `${p.time}:${p.type}`).join(','); }
+        
+        // --- EXPORT MODAL FUNCTIONS ---
+        function openExportModal() { const today = new Date(); const firstDay = formatDate(new Date(today.getFullYear(), today.getMonth(), 1)); const lastDay = formatDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)); exportDateStart.value = firstDay; exportDateEnd.value = lastDay; exportModal.classList.remove('hidden'); }
+        function closeExportModal() { exportModal.classList.add('hidden'); }
+        async function handleExport(e) { e.preventDefault(); const startDate = exportDateStart.value; const endDate = exportDateEnd.value; if (!startDate || !endDate) { showMessage('Please select both a start and end date.', 'error'); return; } if (new Date(endDate) < new Date(startDate)) { showMessage('End date cannot be before start date.', 'error'); return; } showLoading(true); showMessage('Exporting data... please wait.', 'info'); try { const params = new URLSearchParams({ action: 'exportData', dateStart: startDate, dateEnd: endDate }); const response = await fetch(`${API_URL}?${params.toString()}`); if (!response.ok) { throw new Error(`Network error: ${response.statusText}`); } const result = await response.json(); if (result.status !== 'success') { throw new Error(result.message); } const dataToExport = result.data; if (dataToExport.length === 0) { showMessage('No data to export for this date range.', 'info'); showLoading(false); return; } const headers = ["LogID", "EmployeeID", "EmployeeName", "AttendanceDate", "Shift", "ScheduledIn", "ScheduledOut", "ActualIn", "ActualOut", "NetWorkDuration", "LateBy", "EarlyGoingBy", "LateRemark", "EarlyByIn", "LateByOut", "ActualBreak", "BreakAdjustment", "AdjustedBreakResult", "AdjustedOvertime", "Status", "PunchRecords"]; const sheetData = [ headers, ...dataToExport.map(row => headers.map(header => { let val = row[header]; return (val === null || typeof val === 'undefined') ? '' : val; })) ]; const ws = XLSX.utils.aoa_to_sheet(sheetData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Attendance"); const fileName = `attendance_export_${startDate}_to_${endDate}.xlsx`; XLSX.writeFile(wb, fileName); showMessage('Export successful!', 'success'); closeExportModal(); } catch (error) { console.error("Export Error:", error); showMessage(`Export failed: ${error.message}`, 'error'); } finally { showLoading(false); } }
+        
+        // --- SHIFT MANAGEMENT LOGIC (No change) ---
+        async function fetchShiftDefinitions() { shiftListPlaceholder.classList.remove('hidden'); shiftListContainer.innerHTML = ''; showLoading(true); try { const employeesRes = await fetch(`${API_URL}?action=getEmployees`); if (!employeesRes.ok) throw new Error('Failed to load employees.'); allEmployees = (await employeesRes.json()).data; const shiftsRes = await fetch(`${API_URL}?action=getShiftDefinitions`); if (!shiftsRes.ok) throw new Error('Failed to load shift definitions.'); const shiftResult = (await shiftsRes.json()).data; shiftDefinitions = {}; shiftResult.forEach(emp => { shiftDefinitions[emp.EmployeeID] = emp.Shifts; }); renderShiftDefinitionView(); } catch (error) { console.error('Shift fetch error:', error); shiftListPlaceholder.textContent = 'Failed to load shift data.'; } finally { showLoading(false); } }
+        function renderShiftDefinitionView() { shiftListPlaceholder.classList.add('hidden'); shiftListContainer.innerHTML = ''; allEmployees.forEach(employee => { const empId = employee.EmployeeID; const empShifts = shiftDefinitions[empId] || []; const card = document.createElement('div'); card.className = 'bg-white p-4 rounded-lg border border-gray-200 shadow-sm'; card.innerHTML = ` <h3 class="text-lg font-semibold text-gray-900">${employee.EmployeeName} (ID: ${empId})</h3> <div class="mt-3 space-y-3" id="shift_list_${empId}"> ${empShifts.map(shift => ` <form class="shift-form p-3 border border-gray-100 rounded-md bg-gray-50 grid grid-cols-4 gap-3 items-center" data-id="${empId}" data-shift-name="${shift.ShiftName}"> <input type="hidden" name="EmployeeID" value="${empId}"> <div> <label class="block text-xs font-medium text-gray-500">Shift Name</label> <input type="text" name="ShiftName" value="${shift.ShiftName}" required class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm bg-white" readonly> </div> <div> <label class="block text-xs font-medium text-gray-500">Scheduled In</label> <input type="time" name="DefaultScheduledIn" step="1" value="${(shift.DefaultScheduledIn || '').substring(0, 5)}" required class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm"> </div> <div> <label class="block text-xs font-medium text-gray-500">Scheduled Out</label> <input type="time" name="DefaultScheduledOut" step="1" value="${(shift.DefaultScheduledOut || '').substring(0, 5)}" required class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm"> </div> <div> <button type="submit" class="w-full px-3 py-2 mt-4 bg-green-500 text-white rounded-md shadow-sm text-sm hover:bg-green-600">Save</button> </div> </form> `).join('')} </div> <button class="add-shift-btn mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1" data-id="${empId}"> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></svg> <span>Add New Shift</span> </button> `; shiftListContainer.appendChild(card); }); shiftListContainer.querySelectorAll('.shift-form').forEach(form => { form.addEventListener('submit', handleShiftFormSubmit); }); shiftListContainer.querySelectorAll('.add-shift-btn').forEach(button => { button.addEventListener('click', (e) => { createNewShiftRowElement(e.currentTarget.dataset.id); }); }); }
+        async function handleShiftFormSubmit(e) { e.preventDefault(); showLoading(true); const form = e.target; const formData = new FormData(form); const data = {}; formData.forEach((value, key) => { data[key] = value.trim() || null; }); data.DefaultScheduledIn = data.DefaultScheduledIn.length === 5 ? `${data.DefaultScheduledIn}:00` : data.DefaultScheduledIn; data.DefaultScheduledOut = data.DefaultScheduledOut.length === 5 ? `${data.DefaultScheduledOut}:00` : data.DefaultScheduledOut; try { const response = await fetch(`${API_URL}?action=saveShiftDefinitions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); const result = await response.json(); if (response.ok && result.status === 'success') { showMessage(result.message, 'success'); await fetchShiftDefinitions(); } else { throw new Error(result.message || 'Failed to save shift.'); } } catch (error) { console.error('Shift Save Error:', error); showMessage(`Failed to save shift: ${error.message}`, 'error'); } finally { showLoading(false); } }
+        function createNewShiftRowElement(empId) { const listContainer = document.getElementById(`shift_list_${empId}`); if (listContainer.querySelector('.new-shift-form')) { showMessage('Please save or discard the current new shift before adding another.', 'info'); return; } const newForm = document.createElement('form'); newForm.className = 'shift-form new-shift-form p-3 border border-red-300 rounded-md bg-red-50 grid grid-cols-4 gap-3 items-center animate-pulse'; newForm.dataset.id = empId; newForm.innerHTML = ` <input type="hidden" name="EmployeeID" value="${empId}"> <div> <label class="block text-xs font-medium text-gray-500">Shift Name</label> <input type="text" name="ShiftName" required placeholder="New Shift Name" class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm bg-white"> </div> <div> <label class="block text-xs font-medium text-gray-500">Scheduled In</label> <input type="time" name="DefaultScheduledIn" step="1" required value="09:00" class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm"> </div> <div> <label class="block text-xs font-medium text-gray-500">Scheduled Out</label> <input type="time" name="DefaultScheduledOut" step="1" required value="18:00" class="mt-1 p-2 w-full border border-gray-300 rounded-md text-sm"> </div> <div class="flex space-x-2 mt-4"> <button type="submit" class="flex-1 px-3 py-2 bg-green-600 text-white rounded-md shadow-sm text-sm hover:bg-green-700">Save New</button> <button type="button" class="flex-1 px-3 py-2 bg-gray-400 text-white rounded-md shadow-sm text-sm hover:bg-gray-500 cancel-new-shift">Cancel</button> </div> `; listContainer.appendChild(newForm); newForm.addEventListener('submit', handleShiftFormSubmit); newForm.querySelector('.cancel-new-shift').addEventListener('click', () => { newForm.remove(); }); setTimeout(() => newForm.classList.remove('animate-pulse', 'bg-red-50', 'border-red-300'), 1500); }
+        loadShiftDefaults.addEventListener('click', async () => { const empId = currentTableData.find(r => r.LogID == document.getElementById('editLogID').value)?.EmployeeID; const shiftName = document.getElementById('editShift').value; if (!empId || !shiftName) { showMessage('Employee ID or Shift is missing.', 'error'); return; } try { const shiftsRes = await fetch(`${API_URL}?action=getShiftDefinitions`); const shiftResult = (await shiftsRes.json()).data; const employeeShifts = shiftResult.find(e => e.EmployeeID == empId); if (!employeeShifts) { showMessage('No shift data found for this employee.', 'info'); return; } const targetShift = employeeShifts.Shifts.find(s => s.ShiftName === shiftName); if (targetShift) { document.getElementById('editScheduledIn').value = targetShift.DefaultScheduledIn.substring(0, 5); document.getElementById('editScheduledOut').value = targetShift.DefaultScheduledOut.substring(0, 5); showMessage(`Loaded defaults for shift: ${shiftName}`, 'success'); } else { showMessage(`No definition found for shift: ${shiftName}`, 'info'); } } catch (error) { showMessage('Error loading shift defaults.', 'error'); console.error(error); } });
+
+        /**
+         * Initializes the application
+         */
+        function initialize() {
+            navInsights.addEventListener('click', () => switchView('insightsView'));
+            navData.addEventListener('click', () => switchView('dataView'));
+            navShifts.addEventListener('click', () => switchView('shiftView'));
+            uploadButton.addEventListener('click', handleFileUpload);
+            dashboardMonth.value = formatMonth(new Date());
+            dashboardMonth.addEventListener('change', () => { updateInsightView(currentInsightEmployeeID); });
+            filterName.addEventListener('input', debouncedFilter);
+            statusFilter.addEventListener('change', handleFilter);
+            remarkFilter.addEventListener('change', handleFilter); 
+            filterDateStart.addEventListener('change', handleFilter);
+            filterDateEnd.addEventListener('change', handleFilter);
+            exportButton.addEventListener('click', openExportModal);
+            missedPunchButton.addEventListener('click', () => { clearAllFilters(); currentFilters.missedPunchesOnly = true; missedPunchButton.classList.add('active'); currentPage = 1; fetchRecords(); });
+            resetButton.addEventListener('click', resetFiltersAndFetch);
+            prevButton.addEventListener('click', () => { if (currentPage > 1) { currentPage--; fetchRecords(); } });
+            nextButton.addEventListener('click', () => { currentPage++; fetchRecords(); });
+            closeModalButton.addEventListener('click', closeEditModal); 
+            cancelModalButton.addEventListener('click', closeEditModal);
+            editForm.addEventListener('submit', handleModalSave); 
+            addPunchRow.addEventListener('click', () => createPunchRowElement(null, 'in'));
+            closeExportModalButton.addEventListener('click', closeExportModal);
+            cancelExportButton.addEventListener('click', closeExportModal);
+            exportForm.addEventListener('submit', handleExport);
+            
+            fetchEmployees();
+            switchView('insightsView');
+        }
+
+        window.addEventListener('load', initialize);
+    </script>
+</body>
+</html>

@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Attendance Tracker</title>
+    <link rel="icon" href="admin.icon"> 
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/duration.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/isoWeek.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/isSameOrBefore.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/utc.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/timezone.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); padding: 1.5rem; }
+        .btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; transition: all 0.3s; text-align: center; cursor: pointer; }
+        .btn-sm { padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; }
+        .btn-primary { background-color: #4f46e5; color: white; }
+        .btn-primary:hover { background-color: #4338ca; }
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 50; overflow-y: auto; padding: 1rem;}
+        /* MODIFIED MODAL CONTENT WIDTH for 2-column layout */
+        .modal-content { background-color: white; padding: 2rem; border-radius: 0.75rem; width: 95%; max-width: 900px; max-height: 90vh; overflow-y: auto;}
+        /* Base dot styling for uniformity */
+        .status-dot { 
+            width: 10px; 
+            height: 10px; 
+            border-radius: 50%; 
+            display: inline-block;
+            transition: all 0.5s; 
+        }
+        .nav-btn { background-color: #e5e7eb; color: #374151; }
+        .nav-btn.active { background-color: #4f46e5; color: white; box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.1); }
+        .hidden { display: none !important; }
+        .sub-nav-btn { background-color: transparent; color: #6b7280; padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 500; }
+        .sub-nav-btn.active { background-color: #e0e7ff; color: #4f46e5; }
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable:hover { background-color: #f9fafb; }
+        .sort-asc::after { content: ' ▲'; font-size: 0.7em; }
+        .sort-desc::after { content: ' ▼'; font-size: 0.7em; }
+
+        /* Blinking Animation (Gray to Green Pulse) */
+        @keyframes pulse-active {
+            0% { background-color: #d1d5db; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); } 
+            50% { background-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0); } 
+            100% { background-color: #d1d5db; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } 
+        }
+        .blinking-dot {
+            animation: pulse-active 1.5s infinite;
+        }
+        /* Custom alert box styling */
+        #custom-alert-modal .modal-content {
+            max-width: 400px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="admin-app" class="mx-auto px-4 sm:px-6 lg:px-8 py-8" style="display: none;">
+        <header class="mb-8 flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-4xl font-bold text-gray-800">Admin Dashboard</h1>
+                <p class="text-gray-500 mt-1">Manage and view all user attendance.</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <select id="user-filter" class="rounded-md border-gray-300 shadow-sm p-2 bg-white">
+                    <option value="all">All Users</option>
+                </select>
+                <button id="logout-btn" class="text-sm text-indigo-600 hover:underline font-semibold">Logout</button>
+            </div>
+        </header>
+        
+        <nav class="mb-8 flex flex-wrap gap-2">
+            <button data-tab="insights" class="nav-btn btn">Insights</button>
+            <button data-tab="reports" class="nav-btn btn">Reports</button>
+            <button data-tab="leaves" class="nav-btn btn">Leave Requests</button>
+            <button data-tab="employees" class="nav-btn btn active">Employee Master</button>
+            
+            <!-- BIOMETRIC DASHBOARD BUTTON MOVED TO THE FAR RIGHT (ml-auto pushes it right) -->
+            <a href="https://brown-okapi-217859.hostingersite.com/bio-punch/" target="_blank" class="nav-btn btn bg-gray-200 text-gray-700 hover:bg-gray-300 flex items-center">
+                Biometric Dashboard
+            </a>
+        </nav>
+
+        <div id="dashboard-content">
+            <!-- Content will be rendered here -->
+        </div>
+    </div>
+
+    <div id="login-modal" class="modal-backdrop">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 flex items-center">Admin Login<span id="db-status-dot" class="status-dot ml-2 bg-gray-400" title="Database Connection Status"></span></h3>
+            <div class="mt-4 space-y-4">
+                <div><label for="user-id-input" class="block text-sm font-medium text-gray-700">User ID</label><input type="text" id="user-id-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"></div>
+                <div><label for="password-input" class="block text-sm font-medium text-gray-700">Password</label><input type="password" id="password-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"></div>
+                <p id="login-error" class="text-sm text-red-600"></p>
+            </div>
+            <div class="mt-6 text-right"><button id="login-btn" class="btn btn-primary">Login</button></div>
+        </div>
+    </div>
+    
+    <div id="user-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 id="user-modal-title" class="text-lg font-medium leading-6 text-gray-900"></h3>
+            
+            <div id="user-settings-section" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <h4 class="md:col-span-2 text-md font-semibold text-gray-700 border-b pb-2">User Details</h4>
+                <div><label for="user-modal-id" class="block text-sm font-medium text-gray-700">User ID</label><input type="text" id="user-modal-id" class="mt-1 block w-full rounded-md border-gray-300 p-2"></div>
+                <div><label for="user-modal-name" class="block text-sm font-medium text-gray-700">Full Name</label><input type="text" id="user-modal-name" class="mt-1 block w-full rounded-md border-gray-300 p-2"></div>
+                <div><label for="user-modal-password" class="block text-sm font-medium text-gray-700">Password</label><input type="password" id="user-modal-password" class="mt-1 block w-full rounded-md border-gray-300 p-2"></div>
+                <div><label for="user-modal-is-admin" class="block text-sm font-medium text-gray-700">Role</label><select id="user-modal-is-admin" class="mt-1 block w-full rounded-md border-gray-300 p-2"><option value="0">Employee</option><option value="1">Admin</option></select></div>
+                <h4 class="md:col-span-2 text-md font-semibold text-gray-700 border-b pb-2 mt-4">Profile Settings</h4>
+                <div><label for="user-modal-tracked-since" class="block text-sm font-medium text-gray-700">Attendance Tracked Since</label><input type="date" id="user-modal-tracked-since" class="mt-1 block w-full rounded-md border-gray-300 p-2"></div>
+                <div><label for="user-modal-monthly-allowance" class="block to-sm font-medium text-gray-700">Monthly Leave Allowance</label><input type="number" id="user-modal-monthly-allowance" step="0.5" class="mt-1 block w-full rounded-md border-gray-300 p-2"></div>
+                <div class="md:col-span-2 mt-4 text-right"><button id="user-modal-save-btn" type="button" class="btn btn-primary"></button></div>
+            </div>
+            
+            <div id="leave-balance-section" class="mt-4 hidden">
+                <h4 class="text-md font-semibold text-gray-700 border-b pb-2 mb-4">Leave Management Control Panel & Audit</h4>
+
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    
+                    <div class="lg:col-span-2 space-y-4">
+                        
+                        <div class="bg-indigo-50 p-4 rounded-lg flex justify-between items-center">
+                            <span class="font-medium text-gray-800">Current Available Balance:</span>
+                            <span id="user-modal-current-balance" class="text-2xl font-bold text-indigo-600">--</span>
+                        </div>
+                        
+                        <h4 class="text-md font-semibold text-gray-700 border-b pb-2 pt-2">Apply Adjustment</h4>
+                        
+                        <div>
+                            <label for="adjustment-reason" class="block text-sm font-medium text-gray-700">Reason for Adjustment <span class="text-red-500">*</span></label>
+                            <input type="text" id="adjustment-reason" class="mt-1 block w-full rounded-md border-gray-300 p-2" placeholder="e.g., Bonus for project completion or late punch deduction">
+                        </div>
+                        <div class="grid grid-cols-3 gap-4 items-end">
+                            <div class="col-span-1">
+                                <label for="adjustment-value" class="block text-sm font-medium text-gray-700">Value</label>
+                                <input type="number" id="adjustment-value" step="0.5" class="mt-1 block w-full rounded-md border-gray-300 p-2" placeholder="e.g., 2.5">
+                            </div>
+                            <div class="col-span-2 flex gap-2">
+                                <button onclick="handleLeaveAdjustment('add')" class="btn btn-sm w-full bg-green-500 text-white hover:bg-green-600">Add Leaves</button>
+                                <button onclick="handleLeaveAdjustment('deduct')" class="btn btn-sm w-full bg-red-500 text-white hover:bg-red-600">Deduct Leaves</button>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="lg:col-span-3">
+                        <h4 class="text-md font-semibold text-gray-700 border-b pb-2">Leave Audit Trail (Chronological, Desc.)</h4>
+                        <div class="overflow-y-auto" style="height: 350px;"> 
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-100 sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Type</th>
+                                        <th class="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Days</th>
+                                        <th class="px-2 py-2 text-left text-xs font-medium text-gray-600 uppercase">Note / Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adjustment-history-body" class="bg-white divide-y divide-gray-200">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p id="user-modal-error" class="text-sm text-red-600 mt-4 md:col-span-2"></p>
+            <div class="mt-6 flex justify-end"><button type="button" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300" onclick="document.getElementById('user-modal').classList.add('hidden')">Close</button></div>
+        </div>
+    </div>
+    
+    <div id="edit-attendance-modal" class="modal-backdrop hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 class="text-lg font-medium leading-6 text-gray-900" id="edit-modal-title">Edit Attendance</h3>
+            <div class="mt-4 space-y-4">
+                <input type="hidden" id="edit-user-id">
+                <input type="hidden" id="edit-date">
+                <div>
+                    <label for="edit-status" class="block text-sm font-medium text-gray-700">Status</label>
+                    <select id="edit-status" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+                        <option>Present</option>
+                        <option>On Leave</option>
+                        <option>Sick Leave</option>
+                        <option>Paid Leave</option>
+                        <option>Unpaid Leave</option>
+                        <option>Half Day (First Half)</option>
+                        <option>Half Day (Second Half)</option>
+                        <option>Absent</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="edit-login-time" class="block text-sm font-medium text-gray-700">Login Time (24h)</label>
+                        <input type="time" id="edit-login-time" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+                    </div>
+                    <div>
+                        <label for="edit-logout-time" class="block text-sm font-medium text-gray-700">Logout Time (24h)</label>
+                        <input type="time" id="edit-logout-time" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+                    </div>
+                </div>
+                <p id="edit-error" class="text-sm text-red-600"></p>
+            </div>
+            <div class="mt-6 flex justify-end gap-4">
+                <button id="cancel-edit-btn" type="button" class="btn bg-gray-200 hover:bg-gray-300">Cancel</button>
+                <button id="save-edit-btn" type="button" class="btn btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="reject-reason-modal" class="modal-backdrop hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Reason for Rejection (Mandatory)</h3>
+            <div class="mt-4">
+                <textarea id="reject-reason-input" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" placeholder="Please provide a mandatory reason..."></textarea>
+                <p id="reject-error" class="text-sm text-red-600 mt-2"></p>
+            </div>
+            <div class="mt-6 flex justify-end gap-4">
+                <button id="cancel-reject-btn" type="button" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300">Cancel</button>
+                <button id="submit-reject-btn" type="button" class="btn bg-red-600 text-white hover:bg-red-700">Submit Rejection</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="edit-leave-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 id="edit-leave-modal-title" class="text-lg font-medium leading-6 text-gray-900"></h3>
+            <div id="edit-leave-original-details" class="mt-2 text-sm text-gray-600 bg-gray-100 p-3 rounded-md"></div>
+            <div class="mt-4 space-y-4">
+                <div>
+                    <label for="edit-leave-reason-input" class="block text-sm font-medium text-gray-700">Reason for Modification (Mandatory)</label>
+                    <textarea id="edit-leave-reason-input" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="edit-leave-start-date" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="edit-leave-start-date" class="mt-1 block w-full rounded-md border-gray-300 p-2">
+                    </div>
+                    <div>
+                        <label for="edit-leave-end-date" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="edit-leave-end-date" class="mt-1 block w-full rounded-md border-gray-300 p-2">
+                    </div>
+                </div>
+                <div id="edit-leave-days-container" class="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2"></div>
+                <p id="edit-leave-error" class="text-sm text-red-600 mt-2"></p>
+            </div>
+            <div class="mt-6 flex justify-end gap-4">
+                <button id="cancel-edit-leave-btn" type="button" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300">Cancel</button>
+                <button id="submit-edit-leave-btn" type="button" class="btn btn-primary"></button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="leave-details-modal" class="modal-backdrop hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Leave Decision Details</h3>
+            <div id="leave-details-info" class="mt-2 text-sm text-gray-600 bg-gray-100 p-3 rounded-md"></div>
+            <div id="leave-details-days-container" class="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2"></div>
+            <div class="mt-6 flex justify-end">
+                <button id="leave-details-close-btn" type="button" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Custom Alert Modal for Robust Error/Success Display -->
+    <div id="custom-alert-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 id="alert-title" class="text-lg font-medium leading-6 text-gray-900"></h3>
+            <div class="mt-2">
+                <p id="alert-message" class="text-sm text-gray-500"></p>
+            </div>
+            <div class="mt-4 text-right">
+                <button id="alert-close-btn" type="button" class="btn btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const API_URL = 'admin_api.php';
+    dayjs.extend(dayjs_plugin_duration);
+    dayjs.extend(dayjs_plugin_isoWeek);
+    dayjs.extend(dayjs_plugin_isSameOrBefore);
+    dayjs.extend(dayjs_plugin_utc);
+    dayjs.extend(dayjs_plugin_timezone);
+
+    const appTimezone = 'Asia/Kolkata';
+    let allUsersData = {}, userList = [], charts = {}, leaveRequests = [], allEmployees = [];
+    let currentTab = 'employees'; // Default tab
+    let currentReportView = 'summary';
+    let reportSort = { key: 'user', order: 'asc' };
+    let reportFilter = '';
+    let dataRefreshInterval = null;
+    const EXCLUDED_USER_FULL_NAME = 'Jaymin Vyas'; // Client-side exclusion safety check
+    let currentModalUser = null; 
+
+    const DOMElements = {
+        app: document.getElementById('admin-app'),
+        loginModal: document.getElementById('login-modal'),
+        loginBtn: document.getElementById('login-btn'),
+        userIdInput: document.getElementById('user-id-input'),
+        passwordInput: document.getElementById('password-input'),
+        loginError: document.getElementById('login-error'),
+        dbStatusDot: document.getElementById('db-status-dot'),
+        logoutBtn: document.getElementById('logout-btn'),
+        userFilter: document.getElementById('user-filter'),
+        dashboardContent: document.getElementById('dashboard-content'),
+        // New Custom Alert Elements
+        alertModal: document.getElementById('custom-alert-modal'),
+        alertTitle: document.getElementById('alert-title'),
+        alertMessage: document.getElementById('alert-message'),
+        alertCloseBtn: document.getElementById('alert-close-btn'),
+    };
+    
+    function showCustomAlert(title, message, isError = false) {
+        DOMElements.alertTitle.textContent = title;
+        DOMElements.alertMessage.textContent = message;
+        DOMElements.alertTitle.classList.toggle('text-red-600', isError);
+        DOMElements.alertTitle.classList.toggle('text-gray-900', !isError);
+        DOMElements.alertModal.classList.remove('hidden');
+    }
+    
+    // Attach close listener once
+    DOMElements.alertCloseBtn.addEventListener('click', () => {
+        DOMElements.alertModal.classList.add('hidden');
+    });
+
+
+    // --- Core Functions ---
+    async function postData(action, body = {}) {
+        try {
+            const response = await fetch(`${API_URL}?action=${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(body)
+            });
+            const contentType = response.headers.get("content-type");
+            
+            // Check for JSON response, handle non-JSON as a server/PHP error
+            if (contentType && contentType.includes("application/json")) {
+                const result = await response.json();
+                if (!response.ok) {
+                    // Treat non-2xx status codes (even with JSON) as errors
+                    throw new Error(result.message || `HTTP error! Status: ${response.status}`);
+                }
+                if (result.success) return result;
+                else throw new Error(result.message || 'An unknown API error occurred.');
+            } else {
+                const errorText = await response.text();
+                // If it's not JSON, it's likely a fatal PHP error (like the "unexpected token <" error)
+                console.error(`Non-JSON Response (Action: ${action}):`, errorText);
+                throw new Error('Server returned an unexpected response. Check the console for full server error details.');
+            }
+        } catch (error) {
+            console.error(`Error with action '${action}':`, error);
+            if (error.message.includes('Unauthorized')) {
+                clearInterval(dataRefreshInterval);
+                DOMElements.app.style.display = 'none';
+                DOMElements.loginModal.style.display = 'flex';
+            }
+            throw error;
+        }
+    }
+    
+    async function checkDbConnection() {
+        try {
+            const result = await (await fetch(`${API_URL}?action=check_connection`)).json();
+            if (result.success) {
+                DOMElements.dbStatusDot.className = 'status-dot ml-2 bg-green-500';
+                DOMElements.dbStatusDot.title = "Database Connection Successful";
+            } else { throw new Error(result.message); }
+        } catch (e) {
+            DOMElements.dbStatusDot.className = 'status-dot ml-2 bg-red-500';
+            DOMElements.dbStatusDot.title = "Database Connection Failed";
+        }
+    }
+    
+    async function refreshData() {
+        try {
+            console.log("Refreshing data in background...");
+            // Use Promise.all to fetch data concurrently
+            const [lr, ae, ad] = await Promise.all([
+                postData('get_all_leave_requests'),
+                postData('get_all_users_details'),
+                postData('get_admin_data')
+            ]);
+            leaveRequests = lr.data;
+            allEmployees = ae.data;
+            const normalizedAttendance = {};
+            for (const key in ad.data.attendance) { normalizedAttendance[key.toLowerCase()] = ad.data.attendance[key]; }
+            allUsersData.attendance = normalizedAttendance;
+
+            if (currentTab === 'leaves') renderLeavesPage();
+            else if (currentTab === 'employees') renderEmployeeMasterPage();
+            else if (currentTab === 'reports') renderReportView(); // Re-render report to reflect real-time changes
+        } catch (error) {
+            console.error("Background refresh failed:", error);
+            // Don't show alert for background refresh unless it's critical
+        }
+    }
+    
+    function filterJaymin(user) {
+        // Exclude Jaymin Vyas from client-side lists, just in case.
+        return user.full_name.toLowerCase() !== EXCLUDED_USER_FULL_NAME.toLowerCase();
+    }
+    
+    // Optimized Initialization to improve startup speed
+    async function initializeDashboard() {
+        DOMElements.loginError.textContent = ''; // Clear login error before fetch
+        try {
+            // Fetch core data concurrently
+            const [sessionDataResult, userListResult, leaveRequestsResult, allEmployeesResult] = await Promise.all([
+                postData('get_admin_data'),
+                postData('get_user_list'),
+                postData('get_all_leave_requests'),
+                postData('get_all_users_details') 
+            ]);
+
+            const ad = sessionDataResult.data;
+            
+            // Normalize and store data
+            const normalizedProfiles = {};
+            for (const key in ad.profiles) { normalizedProfiles[key.toLowerCase()] = ad.profiles[key]; }
+            ad.profiles = normalizedProfiles;
+            
+            const normalizedAttendance = {};
+            for (const key in ad.attendance) { normalizedAttendance[key.toLowerCase()] = ad.attendance[key]; }
+            ad.attendance = normalizedAttendance;
+
+            const allUsers = userListResult.data;
+            userList = allUsers.filter(filterJaymin).filter(user => user.user_id.toLowerCase() !== 'admin').map(user => ({ ...user, user_id: user.user_id.toLowerCase() }));
+            
+            allUsersData = ad;
+            leaveRequests = leaveRequestsResult.data;
+            allEmployees = allEmployeesResult.data.filter(filterJaymin);
+
+            // Update UI state
+            DOMElements.app.style.display = 'block';
+            DOMElements.loginModal.style.display = 'none';
+            populateUserFilter();
+            renderCurrentTab(); 
+
+            // Set up background refresh
+            if (dataRefreshInterval) clearInterval(dataRefreshInterval);
+            dataRefreshInterval = setInterval(refreshData, 30000);
+        } catch (e) {
+            console.error("Initialization failed:", e);
+            // Only show login screen if initialization fails, assuming session token expired or invalid login
+            DOMElements.loginError.textContent = `Initialization failed. ${e.message}`;
+            DOMElements.app.style.display = 'none';
+            DOMElements.loginModal.style.display = 'flex';
+        }
+    }
+
+    function formatDuration(ms) {
+        if (ms <= 0) return '00:00';
+        const duration = dayjs.duration(ms);
+        const hours = String(Math.floor(duration.asHours())).padStart(2, '0');
+        const minutes = String(duration.minutes()).padStart(2, '0');
+        return `${hours}:${minutes}`;
+    }
+    function calculateWorkDuration(r) {
+        if (!r || !r.login_time || !r.logout_time) return 0;
+        return dayjs.tz(r.logout_time, appTimezone).diff(dayjs.tz(r.login_time, appTimezone)) - calculateBreakDuration(r).total;
+    }
+    function calculateBreakDuration(r) {
+        const j = r?.breaks || '[]';
+        let b = [];
+        try { b = JSON.parse(j); } catch (e) { b = []; }
+        return {
+            total: (b || []).reduce((t, br) => t + (br.startTime && br.endTime ? dayjs.tz(br.endTime, appTimezone).diff(dayjs.tz(br.startTime, appTimezone)) : 0), 0),
+            count: b.length
+        };
+    }
+    function getWorkingSaturdaysForMonth(d) {
+        const ws = [];
+        const s = d.startOf('month');
+        for (let i = 0; i < s.daysInMonth(); i++) {
+            const c = s.add(i, 'day');
+            if (c.day() === 6) ws.push(c.format('YYYY-MM-DD'));
+        }
+        return ws.filter((_, i) => i === 0 || i === 2 || (ws.length > 4 && i === 4));
+    }
+    function getDayPolicy(ds, ws) {
+        const d = dayjs(ds), dayOfWeek = d.day();
+        if (dayOfWeek === 0) return { s: 'Weekend', b: 0 };
+        if (dayOfWeek === 6) return ws.includes(ds) ? { s: 'Present', b: 0 } : { s: 'Weekend', b: 0 };
+        return { s: 'Present', b: 60 };
+    }
+    function calculateLeaveBalance(userProfile, allUserAttendance) {
+        if (!userProfile || !userProfile.tracked_since) return 0;
+        const startOfTrackingMonth = dayjs(userProfile.tracked_since).startOf('month');
+        const monthsTracked = dayjs().startOf('month').diff(startOfTrackingMonth, 'month') + 1;
+        
+        let initialLeaves = 0, bonusLeaves = 0;
+        try { initialLeaves = JSON.parse(userProfile.initial_leaves || '[]').reduce((s, i) => s + (i.count || 0), 0); } catch (e) {}
+        try { bonusLeaves = JSON.parse(userProfile.bonus_leaves || '[]').reduce((s, i) => s + (i.count || 0), 0); } catch (e) {}
+
+        const earnedLeaves = monthsTracked * (userProfile.monthly_leave_allowance || 0);
+        const leavesTaken = Object.values(allUserAttendance || {}).reduce((s, r) => {
+            const status = r.status?.toLowerCase() || '';
+            if ((status.includes('leave') || status.includes('half day')) && !status.includes('unpaid')) {
+                return s + (status.includes('half') ? 0.5 : 1);
+            }
+            return s;
+        }, 0);
+        return initialLeaves + bonusLeaves + earnedLeaves - leavesTaken;
+    }
+    async function handleLogin() {
+        DOMElements.loginError.textContent = '';
+        try {
+            await postData('login', { user_id: DOMElements.userIdInput.value, password: DOMElements.passwordInput.value });
+            await initializeDashboard();
+        } catch (e) {
+            DOMElements.loginError.textContent = e.message || 'Login failed.';
+        }
+    }
+    async function handleLogout() {
+        clearInterval(dataRefreshInterval);
+        await postData('logout');
+        location.reload();
+    }
+    function populateUserFilter() {
+        DOMElements.userFilter.innerHTML = '<option value="all">All Users</option>';
+        userList.forEach(u => {
+            const o = document.createElement('option');
+            o.value = u.user_id;
+            o.textContent = u.full_name;
+            DOMElements.userFilter.appendChild(o);
+        });
+    }
+    function renderCurrentTab() {
+        Object.values(charts).forEach(c => c.destroy());
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === currentTab));
+        
+        if (currentTab === 'insights') renderInsightsPage();
+        else if (currentTab === 'reports') renderReportsPage();
+        else if (currentTab === 'leaves') renderLeavesPage();
+        else if (currentTab === 'employees') renderEmployeeMasterPage();
+    }
+    function renderEmployeeMasterPage() {
+        let content = `<div class="card"><div class="flex justify-between items-center mb-4 gap-4"><h2 class="text-2xl font-bold text-gray-800">Employee Master</h2><button class="btn btn-primary" onclick="openUserModal()">Add New Employee</button></div><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Full Name</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User ID</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+        const today = dayjs().format('YYYY-MM-DD');
+        allEmployees.forEach(emp => {
+            const userTodayRecord = allUsersData.attendance[emp.user_id.toLowerCase()]?.[today];
+            const isAvailable = userTodayRecord && userTodayRecord.login_time && !userTodayRecord.logout_time;
+            const statusDotClass = isAvailable ? 'blinking-dot bg-green-500' : 'bg-gray-400';
+            const userJson = JSON.stringify(emp).replace(/'/g, "\\'"); 
+            
+            content += `<tr><td class="px-4 py-3"><span class="status-dot ${statusDotClass}" title="${isAvailable ? 'Clocked In' : 'Not Active'}"></span></td><td class="px-4 py-3 text-sm font-medium">${emp.full_name}</td><td class="px-4 py-3 text-sm text-gray-600">${emp.user_id}</td><td class="px-4 py-3 text-sm">${emp.is_admin == 1 ? 'Admin' : 'Employee'}</td><td class="px-4 py-3 text-sm whitespace-nowrap">
+                <button class="text-blue-600 hover:text-blue-900 font-semibold mr-3" onclick='openUserModal("leave", JSON.parse(decodeURIComponent("${encodeURIComponent(userJson)}")))' >Leave Audit</button>
+                <button class="text-indigo-600 hover:text-indigo-900 font-semibold" onclick='openUserModal("settings", JSON.parse(decodeURIComponent("${encodeURIComponent(userJson)}")))' >Edit</button>
+            </td></tr>`;
+        });
+        DOMElements.dashboardContent.innerHTML = content + `</tbody></table></div></div>`;
+    }
+    function openUserModal(panel, user = null) {
+        const modal = document.getElementById('user-modal');
+        const title = document.getElementById('user-modal-title');
+        const saveBtn = document.getElementById('user-modal-save-btn');
+        const idInput = document.getElementById('user-modal-id');
+        const nameInput = document.getElementById('user-modal-name');
+        const passInput = document.getElementById('user-modal-password');
+        const isAdminInput = document.getElementById('user-modal-is-admin');
+        const trackedSinceInput = document.getElementById('user-modal-tracked-since');
+        const allowanceInput = document.getElementById('user-modal-monthly-allowance');
+        const errorEl = document.getElementById('user-modal-error');
+        
+        errorEl.textContent = '';
+        window.currentModalUser = user;
+
+        document.getElementById('user-settings-section').classList.add('hidden');
+        document.getElementById('leave-balance-section').classList.add('hidden');
+        
+        if (!user) {
+            title.textContent = 'Add New Employee';
+            saveBtn.textContent = 'Create Employee';
+            idInput.value = '';
+            idInput.readOnly = false;
+            idInput.classList.remove('bg-gray-100');
+            nameInput.value = '';
+            passInput.placeholder = "Required";
+            isAdminInput.value = 0;
+            trackedSinceInput.value = dayjs().format('YYYY-MM-DD');
+            allowanceInput.value = 2;
+            saveBtn.onclick = () => handleSaveUser('add_user');
+            document.getElementById('user-settings-section').classList.remove('hidden');
+        } else {
+            title.textContent = `Edit Employee: ${user.full_name}`;
+            saveBtn.textContent = 'Save Changes';
+            idInput.value = user.user_id;
+            idInput.readOnly = true;
+            idInput.classList.add('bg-gray-100');
+            nameInput.value = user.full_name;
+            passInput.placeholder = "New Password (leave blank to keep unchanged)";
+            isAdminInput.value = user.is_admin;
+            trackedSinceInput.value = user.tracked_since ? dayjs(user.tracked_since).format('YYYY-MM-DD') : '';
+            allowanceInput.value = user.monthly_leave_allowance;
+            passInput.value = '';
+            saveBtn.onclick = () => handleSaveUser('update_user');
+
+            if (panel === 'settings') {
+                document.getElementById('user-settings-section').classList.remove('hidden');
+            } else if (panel === 'leave') {
+                document.getElementById('leave-balance-section').classList.remove('hidden');
+                renderLeaveAuditTrail(user);
+            }
+        }
+        
+        modal.classList.remove('hidden');
+    }
+    function renderLeaveAuditTrail(user) {
+        if (!user) return;
+        
+        const liveUserProfile = allEmployees.find(e => e.user_id === user.user_id) || user;
+        const userAttendance = allUsersData.attendance[user.user_id.toLowerCase()];
+        const currentBalance = calculateLeaveBalance(liveUserProfile, userAttendance);
+        
+        const balanceEl = document.getElementById('user-modal-current-balance');
+        balanceEl.textContent = currentBalance.toFixed(1);
+
+        const historyBody = document.getElementById('adjustment-history-body');
+        historyBody.innerHTML = ''; 
+        
+        let allHistory = [];
+        const monthlyAllowance = liveUserProfile.monthly_leave_allowance || 0;
+        const trackedSinceDate = dayjs(liveUserProfile.tracked_since);
+        const today = dayjs().startOf('month');
+        
+        // 1. Earned Leaves (Monthly Accrual)
+        if (monthlyAllowance > 0) {
+            let currentMonth = trackedSinceDate.startOf('month');
+            while (currentMonth.isSameOrBefore(today, 'month')) {
+                allHistory.push({
+                    count: monthlyAllowance,
+                    note: `Monthly Accrual`,
+                    type: 'Monthly Earned',
+                    date: currentMonth.format('YYYY-MM-DD'),
+                    sort_key: currentMonth.format('YYYYMMDD') + '1' 
+                });
+                currentMonth = currentMonth.add(1, 'month');
+            }
+        }
+        
+        // 2. Initial Leaves (Carry-over)
+        try { 
+            const initial = JSON.parse(liveUserProfile.initial_leaves || '[]').map(item => ({...item, type: 'Initial/Carry-over'}));
+            initial.forEach(item => allHistory.push({
+                ...item, 
+                type: 'Initial/Carry-over',
+                date: trackedSinceDate.format('YYYY-MM-DD'),
+                sort_key: trackedSinceDate.format('YYYYMMDD') + '0'
+            }));
+        } catch (e) { console.error("Failed to parse initial leaves:", e); }
+
+        // 3. Bonus/Adjusted Leaves (Admin additions/deductions)
+        try { 
+            const bonus = JSON.parse(liveUserProfile.bonus_leaves || '[]').map(item => ({...item, type: 'Admin Adjustment'}));
+            bonus.forEach(item => {
+                const dateMatch = item.note.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+                const dateStr = dateMatch ? dateMatch[0] : dayjs().format('YYYY-MM-DD HH:mm:ss');
+                const date = dayjs(dateStr).format('YYYY-MM-DD');
+                allHistory.push({
+                    ...item, 
+                    type: 'Admin Adjustment',
+                    date: date,
+                    sort_key: dayjs(dateStr).format('YYYYMMDDHHmmss') 
+                });
+            });
+        } catch (e) { console.error("Failed to parse bonus leaves:", e); }
+        
+        // 4. Used Leaves (Deductions from Paid Leaves/Half Days)
+        Object.values(allUsersData.attendance[user.user_id.toLowerCase()] || {}).forEach(r => {
+            const status = r.status?.toLowerCase() || '';
+            if ((status.includes('leave') || status.includes('half day')) && !status.includes('unpaid')) {
+                const isHalfDay = status.includes('half');
+                const count = isHalfDay ? -0.5 : -1;
+                allHistory.push({
+                    count: count,
+                    note: `Used: ${r.status}`,
+                    type: 'Used Leave',
+                    date: r.attendance_date, 
+                    sort_key: r.attendance_date.replace(/-/g, '') + '999999' 
+                });
+            }
+        });
+
+        // Final Sort: Purely by sort_key (YYYYMMDDhhmmss) in DESCENDING order (newest first)
+        allHistory.sort((a, b) => {
+            if (a.sort_key < b.sort_key) return 1;
+            if (a.sort_key > b.sort_key) return -1;
+            return 0;
+        });
+
+        if (allHistory.length === 0) {
+             historyBody.innerHTML = '<tr><td colspan="3" class="text-center py-2 text-gray-500 text-sm">No recorded leave history.</td></tr>';
+             return;
+        }
+
+        allHistory.forEach(item => {
+            const count = parseFloat(item.count) || 0;
+            let typeClass = 'text-gray-800';
+            
+            if (item.type.includes('Initial') || item.type.includes('Earned') || (item.type === 'Admin Adjustment' && count > 0)) {
+                typeClass = 'text-green-600';
+            } else if (item.type.includes('Used') || (item.type === 'Admin Adjustment' && count < 0)) {
+                typeClass = 'text-red-600';
+            }
+
+            const sign = count > 0 ? '+' : '';
+            
+            let noteContent = item.note || 'N/A';
+            let dateDisplay = '';
+            
+            if (item.type === 'Monthly Earned') {
+                dateDisplay = dayjs(item.date).format('MMM YYYY');
+                noteContent = `Monthly Accrual`;
+            } else if (item.type === 'Used Leave') {
+                noteContent = item.note.replace('Used: ', '');
+                dateDisplay = dayjs(item.date).format('MMM D, YYYY');
+            } else if (item.type === 'Admin Adjustment') {
+                noteContent = item.note.split(' (Adjusted by admin on ')[0];
+                dateDisplay = dayjs(item.date).format('MMM D, YYYY');
+            } else if (item.type === 'Initial/Carry-over') {
+                noteContent = item.note;
+                dateDisplay = dayjs(item.date).format('MMM YYYY');
+            }
+
+            const noteDateColumn = noteContent + (dateDisplay ? ` (${dateDisplay})` : '');
+
+            const row = `
+                <tr>
+                    <td class="px-2 py-1 text-sm whitespace-nowrap">${item.type}</td>
+                    <td class="px-2 py-1 text-sm font-semibold ${typeClass} whitespace-nowrap">${sign}${count.toFixed(1)}</td>
+                    <td class="px-2 py-1 text-xs text-gray-600 max-w-xs overflow-hidden text-ellipsis" title="${item.note || noteContent}">${noteDateColumn}</td>
+                </tr>
+            `;
+            historyBody.innerHTML += row;
+        });
+    }
+
+    async function handleSaveUser(action) {
+        const errorEl = document.getElementById('user-modal-error');
+        errorEl.textContent = '';
+        const payload = {
+            user_id: document.getElementById('user-modal-id').value.trim(),
+            full_name: document.getElementById('user-modal-name').value.trim(),
+            password: document.getElementById('user-modal-password').value,
+            is_admin: parseInt(document.getElementById('user-modal-is-admin').value),
+            tracked_since: document.getElementById('user-modal-tracked-since').value,
+            monthly_leave_allowance: parseFloat(document.getElementById('user-modal-monthly-allowance').value),
+        };
+        
+        if (!payload.user_id || !payload.full_name) { errorEl.textContent = 'User ID and Full Name are required.'; return; }
+        if (action === 'add_user' && !payload.password) { errorEl.textContent = 'Password is required for new users.'; return; }
+        try {
+            const result = await postData(action, payload);
+            showCustomAlert('Success', result.message, false);
+            document.getElementById('user-modal').classList.add('hidden');
+            await initializeDashboard();
+        } catch (error) {
+            errorEl.textContent = error.message;
+        }
+    }
+    
+    async function handleLeaveAdjustment(type) {
+        const errorEl = document.getElementById('user-modal-error');
+        const userId = document.getElementById('user-modal-id').value;
+        const reason = document.getElementById('adjustment-reason').value.trim();
+        let value = parseFloat(document.getElementById('adjustment-value').value);
+        errorEl.textContent = '';
+        
+        if (!reason || !value || isNaN(value) || value <= 0) { 
+            errorEl.textContent = 'A positive numeric value and a mandatory reason are required for adjustment.'; 
+            return; 
+        }
+        
+        if (type === 'deduct') { 
+            value = -Math.abs(value); 
+        }
+
+        try {
+            const result = await postData('adjust_leave_balance', { user_id: userId, value: value, reason: reason });
+            
+            await refreshData();
+            
+            const updatedUser = allEmployees.find(e => e.user_id === userId);
+
+            document.getElementById('adjustment-reason').value = '';
+            document.getElementById('adjustment-value').value = '';
+
+            if(updatedUser) {
+                openUserModal('leave', updatedUser); 
+                showCustomAlert('Success', result.message, false);
+            } else {
+                 showCustomAlert('Success', result.message, false);
+                 document.getElementById('user-modal').classList.add('hidden');
+            }
+            
+        } catch(error) {
+            errorEl.textContent = error.message;
+        }
+    }
+
+    // --- START: Full Admin Dashboard Functions ---
+    function renderInsightsPage() { 
+        if (DOMElements.userFilter.value === 'all') renderAllUsersInsights();
+        else renderSingleUserInsights(DOMElements.userFilter.value);
+    }
+    
+    function renderAllUsersInsights() { 
+        const today = dayjs().format("YYYY-MM-DD");
+        let activeToday = 0;
+        let onLeaveToday = 0;
+        
+        const monthlyStatus = { Present: 0, 'On Leave': 0, Absent: 0 };
+        const leaveTypeBreakdown = {};
+        const userWorkData = {};
+        const userBreakData = {};
+        let totalMonthlyWorkingDays = 0;
+        
+        const startOfMonth = dayjs().startOf('month');
+        const endOfMonth = dayjs().endOf('month');
+        const workingSaturdays = getWorkingSaturdaysForMonth(dayjs());
+
+        allEmployees.forEach(user => {
+            const userAttendance = allUsersData.attendance[user.user_id.toLowerCase()] || {};
+            userWorkData[user.full_name] = { totalMs: 0, days: 0, onTimeDays: 0 };
+            userBreakData[user.full_name] = { taken: 0, allocated: 0 };
+
+            for (let d = startOfMonth; d.isSameOrBefore(endOfMonth); d = d.add(1, 'day')) {
+                if (d.isAfter(dayjs(), "day")) continue;
+
+                const dateStr = d.format("YYYY-MM-DD");
+                const record = userAttendance[dateStr];
+                const policy = getDayPolicy(dateStr, workingSaturdays);
+                const shiftStartTime = dayjs.tz(dateStr + ' 09:00:00', appTimezone);
+
+                if (policy.s === 'Present') {
+                    totalMonthlyWorkingDays++; 
+                }
+
+                if (dateStr === today) {
+                    if (record && record.status === 'Present' && record.login_time && !record.logout_time) {
+                        activeToday++;
+                    }
+                    if (record && (record.status.toLowerCase().includes("leave") || record.status.toLowerCase().includes("half day"))) {
+                        onLeaveToday++;
+                    }
+                }
+                
+                if (policy.s === 'Weekend') continue;
+
+                const currentStatus = record?.status;
+                
+                if (currentStatus) {
+                    if (currentStatus.toLowerCase() === 'present') {
+                        monthlyStatus.Present++;
+                        const loginTime = record.login_time ? dayjs.tz(record.login_time, appTimezone) : null;
+                        if (loginTime && loginTime.isSameOrBefore(shiftStartTime.add(15, 'minute'))) {
+                             userWorkData[user.full_name].onTimeDays++;
+                        }
+                    } else if (currentStatus.toLowerCase().includes("leave") || currentStatus.toLowerCase().includes("half day")) {
+                        monthlyStatus['On Leave']++;
+                        leaveTypeBreakdown[currentStatus] = (leaveTypeBreakdown[currentStatus] || 0) + 1;
+                    }
+                } else {
+                    monthlyStatus.Absent++;
+                }
+
+                const workDurationMs = calculateWorkDuration(record);
+                userWorkData[user.full_name].totalMs += workDurationMs;
+                if (currentStatus && currentStatus !== 'Absent') {
+                     userWorkData[user.full_name].days++;
+                }
+                
+                const breakMins = Math.round(calculateBreakDuration(record).total / 60000);
+                userBreakData[user.full_name].taken += breakMins;
+                userBreakData[user.full_name].allocated += policy.b;
+            }
+        });
+
+        const absentToday = allEmployees.length - activeToday - onLeaveToday;
+        
+        let content = `
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Team Insights</h2>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="card text-center py-4 bg-blue-50">
+                    <h3 class="font-semibold text-gray-600">Total Employees</h3>
+                    <p class="text-3xl font-bold text-blue-600 mt-1">${allEmployees.length}</p>
+                </div>
+                <div class="card text-center py-4 bg-green-50">
+                    <h3 class="font-semibold text-gray-600">Active Now</h3>
+                    <p class="text-3xl font-bold text-green-600 mt-1">${activeToday}</p>
+                </div>
+                <div class="card text-center py-4 bg-yellow-50">
+                    <h3 class="font-semibold text-gray-600">On Leave Today</h3>
+                    <p class="text-3xl font-bold text-yellow-600 mt-1">${onLeaveToday}</p>
+                </div>
+                <div class="card text-center py-4 bg-red-50">
+                    <h3 class="font-semibold text-gray-600">Absent Today</h3>
+                    <p class="text-3xl font-bold text-red-600 mt-1">${absentToday}</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div class="card lg:col-span-1">
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-700">Monthly Attendance Status</h3>
+                    <canvas id="team-presence-chart"></canvas>
+                </div>
+                
+                <div class="card lg:col-span-1">
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-700">Leave Type Breakdown</h3>
+                    <canvas id="team-leave-analysis-chart"></canvas>
+                </div>
+                
+                <div class="card lg:col-span-1">
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-700">Individual Avg. Work Hours</h3>
+                    <canvas id="team-avg-hours-chart"></canvas>
+                </div>
+
+                <div class="card lg:col-span-3">
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-700">Break Usage vs. Allocation (Mins/Month)</h3>
+                    <div style="height: 350px;">
+                        <canvas id="team-break-usage-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        `;
+        DOMElements.dashboardContent.innerHTML = content;
+
+        setTimeout(() => {
+            charts.teamPresence = new Chart(document.getElementById("team-presence-chart").getContext("2d"), {
+                type: "doughnut", data: { labels: Object.keys(monthlyStatus), datasets: [{ data: Object.values(monthlyStatus), backgroundColor: ["#10B981", "#F59E0B", "#EF4444"], }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: "bottom" }, title: { display: false } } }
+            });
+            charts.leaveAnalysis = new Chart(document.getElementById("team-leave-analysis-chart").getContext("2d"), {
+                type: "pie", data: { labels: Object.keys(leaveTypeBreakdown), datasets: [{ data: Object.values(leaveTypeBreakdown), backgroundColor: ["#3B82F6", "#6366F1", "#8B5CF6", "#EC4899"], }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: "bottom" }, title: { display: false } } }
+            });
+            const avgHoursLabels = Object.keys(userWorkData);
+            const avgHoursData = avgHoursLabels.map(name => {
+                const data = userWorkData[name];
+                return data.days > 0 ? (data.totalMs / data.days / 36e5).toFixed(2) : 0;
+            });
+            charts.avgHours = new Chart(document.getElementById("team-avg-hours-chart").getContext("2d"), {
+                type: "bar", data: { labels: avgHoursLabels, datasets: [{ label: "Avg. Daily Hours", data: avgHoursData, backgroundColor: "#14B8A6", }] },
+                options: { responsive: true, maintainAspectRatio: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours' } } }, plugins: { legend: { display: false } }
+            }
+            });
+            const breakUsers = Object.keys(userBreakData);
+            const takenBreaks = breakUsers.map(name => userBreakData[name].taken);
+            const allocatedBreaks = breakUsers.map(name => userBreakData[name].allocated);
+            
+            charts.breakUsage = new Chart(document.getElementById("team-break-usage-chart").getContext("2d"), {
+                type: "bar", // Vertical bar chart
+                data: {
+                    labels: breakUsers,
+                    datasets: [
+                        {
+                            label: "Allocated (mins)",
+                            data: allocatedBreaks,
+                            backgroundColor: "#D1D5DB", // Gray/Allocated
+                            barThickness: 15,
+                        },
+                        {
+                            label: "Taken (mins)",
+                            data: takenBreaks,
+                            backgroundColor: "#F59E0B", // Amber/Taken
+                            barThickness: 15,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { 
+                            stacked: false, // Ensure bars are grouped
+                        },
+                        y: { // Minutes axis
+                            beginAtZero: true, 
+                            title: { display: true, text: 'Minutes' },
+                            stacked: false, 
+                        }
+                    },
+                    plugins: { legend: { position: "top" } }
+                }
+            });
+
+        }, 0);
+    }
+    
+    function renderSingleUserInsights(userId) {
+        const userProfile = allUsersData.profiles[userId] || {};
+        const userAttendance = allUsersData.attendance[userId] || {};
+        const currentBalance = calculateLeaveBalance(userProfile, userAttendance);
+        const fullName = userList.find(u => u.user_id === userId)?.full_name || userId;
+
+        let totalWorkingMs = 0;
+        let totalBreakMs = 0;
+        let daysPresent = 0;
+        let totalMonthlyAllocatedBreakMins = 0;
+
+        const startOfMonth = dayjs().startOf('month');
+        const endOfMonth = dayjs().endOf('month');
+        const workingSaturdays = getWorkingSaturdaysForMonth(dayjs());
+        
+        const monthlyStatus = { Present: 0, 'Half Day': 0, 'On Leave': 0, Absent: 0 };
+        const weeklyHours = {};
+        // Initialize 8 weeks back for consistency
+        for (let i = 7; i >= 0; i--) { 
+            const weekStart = dayjs().subtract(i, 'week').startOf('isoWeek'); 
+            weeklyHours[`Week ${weekStart.isoWeek()}`] = 0; 
+        }
+
+        // Process current month data
+        for (let d = startOfMonth; d.isSameOrBefore(endOfMonth); d = d.add(1, 'day')) {
+            if (d.isAfter(dayjs(), "day")) continue;
+
+            const dateStr = d.format("YYYY-MM-DD");
+            const record = userAttendance[dateStr];
+            const policy = getDayPolicy(dateStr, workingSaturdays);
+            
+            if (policy.s !== 'Weekend') {
+                totalMonthlyAllocatedBreakMins += policy.b;
+            }
+
+            if (record) {
+                const workMs = calculateWorkDuration(record);
+                const breakMs = calculateBreakDuration(record).total;
+                
+                totalWorkingMs += workMs;
+                totalBreakMs += breakMs;
+
+                const statusLower = record.status.toLowerCase();
+
+                if (statusLower === 'present') {
+                    monthlyStatus.Present++;
+                    daysPresent++;
+                } else if (statusLower.includes('half day')) {
+                    monthlyStatus['Half Day']++;
+                    daysPresent += 0.5;
+                } else if (statusLower.includes('leave')) {
+                    monthlyStatus['On Leave']++;
+                }
+                
+                // Weekly trend data
+                if (record.status === 'Present' || record.status.startsWith('Half Day')) {
+                    const weekLabel = `Week ${d.isoWeek()}`;
+                    if(weeklyHours.hasOwnProperty(weekLabel)) {
+                         weeklyHours[weekLabel] += workMs / 3600000;
+                    }
+                }
+
+            } else if (policy.s !== 'Weekend') {
+                monthlyStatus.Absent++;
+            }
+        }
+        
+        const avgDailyHours = daysPresent > 0 ? (totalWorkingMs / daysPresent / 36e5).toFixed(2) : 0;
+        const totalBreakMins = Math.round(totalBreakMs / 60000);
+        const breakUsedPercent = totalMonthlyAllocatedBreakMins > 0 ? (totalBreakMins / totalMonthlyAllocatedBreakMins * 100).toFixed(0) : 0;
+
+        DOMElements.dashboardContent.innerHTML = `
+            <h2 class="text-3xl font-bold text-gray-800 mb-6">Insights for ${fullName}</h2>
+            
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div class="card text-center py-4 bg-indigo-50"> <h3 class="font-semibold text-gray-600">Leave Balance</h3> <p class="text-3xl font-bold text-indigo-600 mt-1">${currentBalance.toFixed(1)}</p> </div>
+                <div class="card text-center py-4 bg-green-50"> <h3 class="font-semibold text-gray-600">Avg. Daily Hours</h3> <p class="text-3xl font-bold text-green-600 mt-1">${avgDailyHours}h</p> </div>
+                <div class="card text-center py-4 bg-blue-50"> <h3 class="font-semibold text-gray-600">Total Work Days (Mo)</h3> <p class="text-3xl font-bold text-blue-600 mt-1">${daysPresent}</p> </div>
+                <div class="card text-center py-4 bg-yellow-50"> <h3 class="font-semibold text-gray-600">Break Used (%)</h3> <p class="text-3xl font-bold text-yellow-600 mt-1">${breakUsedPercent}%</p> </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="card"> <h4 class="font-semibold mb-2 text-center text-gray-700">Monthly Status Breakdown</h4> <canvas id="user-monthly-summary-chart"></canvas> </div>
+                <div class="card"> <h4 class="font-semibold mb-2 text-center text-gray-700">Weekly Hours Trend (Last 8 Weeks)</h4> <canvas id="user-weekly-hours-chart"></canvas> </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            // Chart 1: Monthly Status Breakdown
+            charts.userMonthly = new Chart(document.getElementById("user-monthly-summary-chart").getContext("2d"), {
+                type: "doughnut", data: { labels: Object.keys(monthlyStatus).filter(k => monthlyStatus[k] > 0), datasets: [{ data: Object.values(monthlyStatus).filter(v => v > 0), backgroundColor: ["#10B981", "#3B82F6", "#F59E0B", "#EF4444"], }] },
+                options: { plugins: { legend: { position: "bottom" }, title: { display: false } } }
+            });
+
+            // Chart 2: Weekly Hours Trend
+            charts.userWeekly = new Chart(document.getElementById("user-weekly-hours-chart").getContext("2d"), {
+                type: "line", data: { labels: Object.keys(weeklyHours), datasets: [{ label: "Total Work Hours", data: Object.values(weeklyHours), borderColor: "#10B981", tension: 0.2, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }] },
+                options: { scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+            });
+        }, 0);
+    }
+
+    // --- Report & Employee Master Functions (FIXED) ---
+    function renderReportsPage(){
+        const today = dayjs();
+        // Generate year options based on existing data
+        const years = [...new Set(Object.values(allUsersData.attendance || {}).flatMap(userAtt => Object.keys(userAtt)).map(d => dayjs(d).year()))].sort((a,b) => b-a);
+        if (years.length === 0) years.push(today.year());
+        
+        const yearOptions = years.map(y => `<option value="${y}">${y}</option>`).join("");
+        const monthOptions = Array.from({ length: 12 }, (_, t) => `<option value="${t}">${dayjs().month(t).format("MMMM")}</option>`).join("");
+
+        DOMElements.dashboardContent.innerHTML=`
+        <div class="card">
+            <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-800">Generate Reports</h2>
+                    <div class="mt-2 flex items-center bg-gray-100 p-1 rounded-lg">
+                        <button id="summary-view-btn" class="sub-nav-btn" data-view="summary">Monthly Summary</button>
+                        <button id="daily-view-btn" class="sub-nav-btn" data-view="daily">Daily Log</button>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <input type="text" id="report-filter" class="rounded-md border-gray-300 shadow-sm p-2 bg-white" placeholder="Filter table...">
+                    <select id="report-year-filter" class="rounded-md border-gray-300 shadow-sm p-2 bg-white">${yearOptions}</select>
+                    <select id="report-month-filter" class="rounded-md border-gray-300 shadow-sm p-2 bg-white">${monthOptions}</select>
+                    <button id="export-btn" class="btn btn-primary">Export</button>
+                </div>
+            </div>
+            <div id="report-content" class="overflow-x-auto"></div>
+        </div>`;
+        
+        document.getElementById("report-year-filter").value = today.year();
+        document.getElementById("report-month-filter").value = today.month();
+
+        setupReportControls();
+        switchReportView(currentReportView);
+    }
+    
+    function setupReportControls(){
+        document.getElementById("summary-view-btn").addEventListener("click",()=>switchReportView("summary"));
+        document.getElementById("daily-view-btn").addEventListener("click",()=>switchReportView("daily"));
+        document.getElementById("report-filter").addEventListener("input",e=>{reportFilter=e.target.value;renderReportView()});
+        document.getElementById("report-year-filter").addEventListener("change",renderReportView);
+        document.getElementById("report-month-filter").addEventListener("change",renderReportView);
+        document.getElementById("export-btn").addEventListener("click",exportReportToXLSX);
+        const a=document.getElementById("cancel-edit-btn");a&&a.addEventListener("click",()=>document.getElementById("edit-attendance-modal").classList.add("hidden"));
+    }
+    function switchReportView(newView){
+        document.querySelectorAll('.sub-nav-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`button[data-view="${newView}"]`).classList.add('active');
+        currentReportView=newView;
+        reportSort={key:newView==="summary"?"user":"date",order:"asc"};
+        renderReportView();
+    }
+    
+    function renderReportView(){
+        if(currentReportView==="summary")renderSummaryReport();
+        else renderDailyLogReport()
+    }
+
+    function renderSummaryReport() {
+        const year = document.getElementById("report-year-filter").value;
+        const month = document.getElementById("report-month-filter").value;
+        const dateForProcessing = dayjs().year(year).month(month);
+        const today = dayjs();
+
+        const reportData = userList.map(user => {
+            const processed = processUserDataForMonth(user, dateForProcessing, today);
+            return {
+                user: user.full_name,
+                userId: user.user_id,
+                totalWorkingDays: processed.totalWorkingDays,
+                daysWorked: processed.summary.daysWorked,
+                daysOnLeave: processed.summary.daysOnLeave,
+                daysAbsent: processed.summary.daysAbsent,
+                leaveBalance: processed.finalLeaveBalance.toFixed(1)
+            };
+        });
+
+        const sortedAndFilteredData = applySortAndFilter(reportData);
+        
+        let tableHtml = `<table class="min-w-full divide-y divide-gray-200 mt-4"><thead class="bg-gray-50"><tr>
+            ${createSortableHeader("user", "User")}
+            ${createSortableHeader("totalWorkingDays", "Work Days")}
+            ${createSortableHeader("daysWorked", "Worked")}
+            ${createSortableHeader("daysOnLeave", "On Leave")}
+            ${createSortableHeader("daysAbsent", "Absent")}
+            ${createSortableHeader("leaveBalance", "Paid Leave Bal.")}
+            </tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+
+        sortedAndFilteredData.forEach(item => {
+            tableHtml += `<tr>
+                <td class="px-4 py-3 text-sm">${item.user}</td>
+                <td class="px-4 py-3 text-sm">${item.totalWorkingDays}</td>
+                <td class="px-4 py-3 text-sm">${item.daysWorked}</td>
+                <td class="px-4 py-3 text-sm text-yellow-600">${item.daysOnLeave}</td>
+                <td class="px-4 py-3 text-sm text-red-600">${item.daysAbsent}</td>
+                <td class="px-4 py-3 text-sm font-bold text-indigo-600">${item.leaveBalance}</td>
+            </tr>`;
+        });
+
+        document.getElementById('report-content').innerHTML = tableHtml + "</tbody></table>";
+        addSortListeners();
+    }
+
+    function renderDailyLogReport() {
+        const year = document.getElementById("report-year-filter").value;
+        const month = document.getElementById("report-month-filter").value;
+        const dateForProcessing = dayjs().year(year).month(month);
+        const today = dayjs();
+        let dailyLog = [];
+
+        const usersToReport = DOMElements.userFilter.value === 'all' 
+            ? userList 
+            : userList.filter(u => u.user_id === DOMElements.userFilter.value);
+
+        usersToReport.forEach(user => {
+            const processed = processUserDataForMonth(user, dateForProcessing, today);
+            dailyLog.push(...processed.dailyLog);
+        });
+
+        const sortedAndFilteredData = applySortAndFilter(dailyLog);
+
+        let tableHtml = `<table class="min-w-full divide-y divide-gray-200 mt-4"><thead class="bg-gray-50"><tr>
+            ${createSortableHeader("user", "User")}
+            ${createSortableHeader("date", "Date")}
+            ${createSortableHeader("status", "Status")}
+            ${createSortableHeader("login", "Login")}
+            ${createSortableHeader("logout", "Logout")}
+            ${createSortableHeader("workHours", "Work")}
+            ${createSortableHeader("breakTaken", "Break")}
+            ${createSortableHeader("breakRemain", "Remain")}
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+            </tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+
+        sortedAndFilteredData.forEach(item => {
+            tableHtml += `<tr>
+                <td class="px-4 py-3 text-sm">${item.user}</td>
+                <td class="px-4 py-3 text-sm">${item.date}</td>
+                <td class="px-4 py-3 text-sm">${item.status}</td>
+                <td class="px-4 py-3 text-sm">${item.login}</td>
+                <td class="px-4 py-3 text-sm">${item.logout}</td>
+                <td class="px-4 py-3 text-sm">${item.workHours}</td>
+                <td class="px-4 py-3 text-sm">${item.breakTaken}</td>
+                <td class="px-4 py-3 text-sm">${item.breakRemain}</td>
+                <td class="px-4 py-3">${item.isEditable ? `<button class="text-indigo-600 hover:text-indigo-900 text-sm" onclick="openEditModal('${item.userId}','${item.date}','${item.status}', '${item.login}', '${item.logout}')">Edit</button>` : ""}</td>
+            </tr>`;
+        });
+
+        document.getElementById('report-content').innerHTML = tableHtml + "</tbody></table>";
+        addSortListeners();
+    }
+
+    function processUserDataForMonth(user, reportDate, today) {
+        const userProfile = allUsersData.profiles[user.user_id.toLowerCase()] || {};
+        const userAttendance = allUsersData.attendance[user.user_id.toLowerCase()] || {};
+        const workingSaturdays = getWorkingSaturdaysForMonth(reportDate);
+        const daysInMonth = reportDate.daysInMonth();
+        let summary = { daysWorked: 0, daysOnLeave: 0, daysAbsent: 0 };
+        let dailyLog = [];
+        let totalWorkingDays = 0;
+        const finalLeaveBalance = calculateLeaveBalance(userProfile, userAttendance);
+        
+        for (let d = 1; d <= daysInMonth; d++) {
+            const currentDate = reportDate.date(d);
+            if (currentDate.isAfter(today, 'day')) continue;
+            
+            const currentDateStr = currentDate.format('YYYY-MM-DD');
+            const record = userAttendance[currentDateStr];
+            const policy = getDayPolicy(currentDateStr, workingSaturdays);
+            
+            let finalStatus = 'Not Recorded';
+            let isEditable = false;
+            
+            if (policy.s === 'Weekend') {
+                finalStatus = 'Weekend';
+            } else {
+                totalWorkingDays++;
+                isEditable = true;
+                if (record && record.status) {
+                    finalStatus = record.status;
+                    const statusLower = finalStatus.toLowerCase();
+                    if (statusLower === 'present') {
+                        summary.daysWorked++;
+                    } else if (statusLower.includes('half day')) {
+                        summary.daysWorked += 0.5;
+                        summary.daysOnLeave += 0.5;
+                    } else if (statusLower.includes('leave')) {
+                        summary.daysOnLeave++;
+                    }
+                } else {
+                    finalStatus = 'Absent';
+                    summary.daysAbsent++;
+                }
+            }
+            
+            let workInfo = 0;
+            const breakInfo = record ? calculateBreakDuration(record) : { total: 0 };
+            const breakMins = Math.round(breakInfo.total / 60000);
+            let displayLogout = '--';
+            let displayLogin = record?.login_time ? dayjs.tz(record.login_time, appTimezone).format('HH:mm') : '--';
+            
+            if (record) {
+                if (record.logout_time) {
+                    workInfo = calculateWorkDuration(record);
+                    displayLogout = dayjs.tz(record.logout_time, appTimezone).format('HH:mm');
+                } 
+            }
+            
+            dailyLog.push({user: user.full_name,userId: user.user_id,date: currentDateStr,status: finalStatus,login: displayLogin,logout: displayLogout,workHours: formatDuration(workInfo),breakTaken: `${breakMins}m`,breakRemain: `${policy.b - breakMins}m`,isEditable});
+        }
+        return { summary, dailyLog, totalWorkingDays, finalLeaveBalance };
+    }
+    
+    function createSortableHeader(key, label) {
+        const currentSort = reportSort;
+        let sortClass = 'sortable';
+        if (currentSort.key === key) {
+            sortClass += currentSort.order === 'asc' ? ' sort-asc' : ' sort-desc';
+        }
+        return `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase ${sortClass}" onclick="handleSort('${key}')">${label}</th>`;
+    }
+    
+    function addSortListeners() {
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.removeEventListener('click', handleSortWrapper);
+            th.addEventListener('click', handleSortWrapper);
+        });
+    }
+    
+    function handleSortWrapper(event) {
+        // Use text content to reliably get the column key, stripping the sort indicator symbols (▲/▼)
+        const textContent = event.currentTarget.textContent.trim();
+        const key = textContent.replace(/[\s\u25B2\u25BC]/g, '').replace('PaidLeaveBal.', 'Paid').replace('WorkDays', 'Work');
+        handleSort(key);
+    }
+    
+    function handleSort(key) {
+        const keyMap = { 
+            'User': 'user', 'WorkDays': 'totalWorkingDays', 'Worked': 'daysWorked', 'OnLeave': 'daysOnLeave', 
+            'Absent': 'daysAbsent', 'PaidLeaveBal.': 'leaveBalance', 'Date': 'date', 'Status': 'status', 
+            'Login': 'login', 'Logout': 'logout', 'Work': 'workHours', 'Break': 'breakTaken', 'Remain': 'breakRemain' 
+        };
+        const mappedKey = keyMap[key] || key;
+        
+        if (reportSort.key === mappedKey) { 
+            reportSort.order = reportSort.order === 'asc' ? 'desc' : 'asc'; 
+        } else { 
+            reportSort.key = mappedKey; 
+            reportSort.order = 'asc'; 
+        }
+        renderReportView();
+    }
+    
+    function applySortAndFilter(data) {
+        let filtered = data.filter(item => {
+            const filterText = reportFilter.toLowerCase();
+            return Object.values(item).some(val => String(val).toLowerCase().includes(filterText));
+        });
+        const sortKey = reportSort.key;
+        const sortOrder = reportSort.order === 'asc' ? 1 : -1;
+        filtered.sort((a, b) => {
+            let valA = a[sortKey];
+            let valB = b[sortKey];
+            
+            if (['totalWorkingDays', 'daysWorked', 'daysOnLeave', 'daysAbsent', 'leaveBalance'].includes(sortKey)) {
+                valA = parseFloat(valA) || 0;
+                valB = parseFloat(valB) || 0;
+            } else if (sortKey === 'date') {
+                valA = dayjs(valA).valueOf();
+                valB = dayjs(valB).valueOf();
+            } else if (sortKey === 'workHours') {
+                // Convert HH:MM to total minutes for sorting
+                const [hA, mA] = (valA || '00:00').split(':').map(Number);
+                const [hB, mB] = (valB || '00:00').split(':').map(Number);
+                valA = hA * 60 + mA;
+                valB = hB * 60 + mB;
+            }
+
+            if (valA < valB) return -1 * sortOrder;
+            if (valA > valB) return 1 * sortOrder;
+            return 0;
+        });
+        return filtered;
+    }
+    
+    function exportReportToXLSX() {
+        const year = document.getElementById("report-year-filter").value, month = document.getElementById("report-month-filter").value, monthName = dayjs().month(month).format("MMMM");
+        const reportTitle = currentReportView === 'summary' ? 'Monthly Summary' : 'Daily Log';
+        let reportData = [];
+        if (currentReportView === 'summary') {
+            const date = dayjs().year(year).month(month);
+            const data = allEmployees.map(user => {
+                const processed = processUserDataForMonth(user, date, dayjs());
+                return { 'User': user.full_name, 'Work Days in Month': processed.totalWorkingDays, 'Days Worked': processed.summary.daysWorked, 'Days On Leave': processed.summary.daysOnLeave, 'Days Absent': processed.summary.daysAbsent, 'Paid Leave Balance': processed.finalLeaveBalance.toFixed(1) };
+            });
+            reportData = applySortAndFilter(data.map(d => ({ ...d, user: d.User })));
+            reportData.forEach(d => delete d.user); 
+        } else { // Daily Log
+            const date = dayjs().year(year).month(month);
+            let allDailyData = [];
+            const users = DOMElements.userFilter.value === 'all' ? allEmployees : allEmployees.filter(u => u.user_id === DOMElements.userFilter.value);
+            users.forEach(user => {
+                const processed = processUserDataForMonth(user, date, dayjs());
+                allDailyData.push(...processed.dailyLog);
+            });
+            reportData = applySortAndFilter(allDailyData).map(d => ({
+                'User': d.user, 'Date': d.date, 'Status': d.status, 'Login': d.login, 'Logout': d.logout, 'Work (h:m)': d.workHours, 'Break Taken': d.breakTaken, 'Break Remain': d.breakRemain
+            }));
+        }
+        if (reportData.length === 0) { showCustomAlert('Export Failed', 'No data to export for the selected filters.', true); return; }
+        const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(reportData);
+        XLSX.utils.book_append_sheet(wb, ws, reportTitle);
+        XLSX.writeFile(wb, `${reportTitle.replace(' ', '_')}_${year}_${monthName}.xlsx`);
+    }
+
+    function renderLeavesPage(){
+        const sortedRequests = [...leaveRequests].sort((a,b)=>{
+            const statusOrder = {pending:1, partially_approved:2, approved:3, rejected:4};
+            return statusOrder[a.status] !== statusOrder[b.status] 
+                ? statusOrder[a.status] - statusOrder[b.status]
+                : new Date(b.created_at) - new Date(a.created_at);
+        });
+        
+        let content = `<div class="card"><h2 class="text-2xl font-bold text-gray-800 mb-4">Leave Request History (${leaveRequests.length})</h2><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+
+        if(sortedRequests.length === 0) {
+            content += '<tr><td colspan="6" class="text-center py-4 text-gray-500">No leave requests found.</td></tr>';
+        } else {
+            sortedRequests.forEach(req => {
+                let statusBadge;
+                switch(req.status){
+                    case"approved": statusBadge=`<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Approved</span>`; break;
+                    case"rejected": statusBadge=`<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Rejected</span>`; break;
+                    case"partially_approved": statusBadge=`<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">Partially Approved</span>`; break;
+                    default: statusBadge=`<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Pending</span>`
+                }
+                
+                let actions;
+                if("pending" === req.status) {
+                    // Pending Actions
+                    actions = `<div class="flex items-center gap-2">
+                        <button onclick='handleFullApprove(${req.id})' class="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-2 rounded text-xs">Approve</button>
+                        <button onclick='openLeaveEditModal(${req.id},"partial")' class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-2 rounded text-xs">Partial</button>
+                        <button onclick='openRejectModal(${req.id})' class="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-2 rounded text-xs">Reject</button>
+                    </div>`;
+                } else {
+                    // Approved/Rejected/Partial Actions
+                    actions = `<div class="flex items-center gap-2">
+                        <button onclick='showAdminLeaveDetails(${req.id})' class="text-indigo-600 hover:text-indigo-900 text-xs font-semibold">Details</button>
+                        <button onclick='openLeaveEditModal(${req.id},"edit")' class="text-gray-500 hover:text-gray-800 text-xs font-semibold">Edit</button>
+                    </div>`;
+                }
+                
+                const adminReasonDisplay = req.admin_reason ? `<br><small class="text-gray-500">Admin: ${req.admin_reason}</small>` : "";
+                
+                content += `<tr>
+                    <td class="px-4 py-3 text-sm font-medium">${req.full_name}</td>
+                    <td class="px-4 py-3 text-sm">${dayjs(req.start_date).format("MMM D")} - ${dayjs(req.end_date).format("MMM D, YYYY")}</td>
+                    <td class="px-4 py-3 text-sm">${req.leave_type}</td>
+                    <td class="px-4 py-3 text-sm max-w-xs truncate" title="${req.reason||""}">${req.reason||"N/A"}</td>
+                    <td class="px-4 py-3 text-sm">${statusBadge}${adminReasonDisplay}</td>
+                    <td class="px-4 py-3 text-sm whitespace-nowrap">${actions}</td>
+                </tr>`;
+            });
+        }
+        DOMElements.dashboardContent.innerHTML=content+"</tbody></table></div></div>";
+    }
+
+    function openRejectModal(requestId){
+        const modal = document.getElementById("reject-reason-modal");
+        document.getElementById("reject-error").textContent = ""; // Clear previous error
+        modal.classList.remove("hidden");
+        document.getElementById("submit-reject-btn").onclick = () => handleSubmitRejection(requestId);
+        document.getElementById("cancel-reject-btn").onclick = () => modal.classList.add("hidden");
+    }
+    
+    async function handleSubmitRejection(requestId){
+        const reasonInput = document.getElementById("reject-reason-input");
+        const errorEl = document.getElementById("reject-error");
+        const reason = reasonInput.value.trim();
+        
+        if(!reason) {
+            errorEl.textContent="Reason is mandatory.";
+            return;
+        }
+        
+        try{
+            const result = await postData("update_leave_status",{request_id:requestId,status:"rejected",reason:reason});
+            document.getElementById("reject-reason-modal").classList.add("hidden");
+            reasonInput.value="";
+            errorEl.textContent="";
+            await initializeDashboard();
+            showCustomAlert('Rejection Successful', result.message, false);
+        } catch(e) {
+            // FIX: Ensure error message is shown in the rejection modal and not globally.
+            errorEl.textContent=e.message;
+        }
+    }
+    
+    async function handleFullApprove(requestId){
+        const proceed = await new Promise(resolve => {
+            const tempModal = document.createElement('div');
+            tempModal.classList.add('modal-backdrop');
+            tempModal.innerHTML = `
+                <div class="modal-content" style="max-width: 400px; text-align: center;">
+                    <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Confirm Approval</h3>
+                    <p class="text-sm text-gray-500 mb-6">Are you sure you want to fully approve this request as is?</p>
+                    <div class="flex justify-center gap-4">
+                        <button id="confirm-cancel" class="btn bg-gray-200 text-gray-800 hover:bg-gray-300">Cancel</button>
+                        <button id="confirm-ok" class="btn btn-primary bg-green-500 hover:bg-green-600">Approve</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(tempModal);
+            document.getElementById('confirm-ok').onclick = () => { document.body.removeChild(tempModal); resolve(true); };
+            document.getElementById('confirm-cancel').onclick = () => { document.body.removeChild(tempModal); resolve(false); };
+        });
+
+        if (!proceed) return;
+
+        try{
+            const result = await postData("update_leave_status",{request_id:requestId,status:"approved"});
+            await initializeDashboard();
+            showCustomAlert('Approval Successful', result.message, false);
+        } catch(e) {
+            // FIX: Ensure error message is shown using the custom alert
+            showCustomAlert('Approval Failed', e.message, true);
+        }
+    }
+
+    // FIXED: Now accepts ID and looks up the request internally
+    async function openLeaveEditModal(requestId, type) {
+        const request = leaveRequests.find(r => r.id === requestId);
+        if (!request) { 
+            console.error("Leave request not found for ID:", requestId);
+            showCustomAlert("Error", "Leave request not found or data not refreshed.", true); 
+            return; 
+        }
+
+        const modal = document.getElementById("edit-leave-modal");
+        const titleEl = document.getElementById("edit-leave-modal-title");
+        const originalDetailsEl = document.getElementById("edit-leave-original-details");
+        const startDateInput = document.getElementById("edit-leave-start-date");
+        const endDateInput = document.getElementById("edit-leave-end-date");
+        const daysContainer = document.getElementById("edit-leave-days-container");
+        const reasonInput = document.getElementById("edit-leave-reason-input");
+        const errorEl = document.getElementById("edit-leave-error");
+        const saveBtn = document.getElementById("submit-edit-leave-btn");
+
+        titleEl.textContent = type === "edit" ? "Edit Leave Decision" : "Partially Approve Leave";
+        saveBtn.textContent = type === "edit" ? "Save Changes" : "Submit Partial Approval";
+        originalDetailsEl.innerHTML = `<strong>Original Request:</strong> ${request.leave_type} from ${request.start_date} to ${request.end_date}`;
+        startDateInput.value = request.start_date;
+        endDateInput.value = request.end_date;
+        reasonInput.value = type === "edit" ? request.admin_reason || "" : "";
+        errorEl.textContent = "";
+        daysContainer.innerHTML = "<p>Loading current statuses...</p>";
+
+        const renderDateSelectors = async () => {
+            const startDate = dayjs(startDateInput.value);
+            const endDate = dayjs(endDateInput.value);
+            daysContainer.innerHTML = " ";
+
+            if (!startDate.isValid() || !endDate.isValid() || endDate.isBefore(startDate)) {
+                return daysContainer.innerHTML = '<p class="text-sm text-gray-500">Select a valid date range.</p>';
+            }
+
+            let existingStatuses = {};
+            if (type === "edit" || type === "partial") { // Fetch existing status for both edit and partial view (to show what's currently in attendance)
+                try {
+                    const details = (await postData("get_leave_request_details_admin", { request_id: request.id })).data;
+                    details.forEach(detail => {
+                        // Use the status that was ACTUALLY applied (which might be the original request type or 'Not Approved')
+                        existingStatuses[detail.date] = detail.status.toLowerCase().includes("not approved") ? "Not Approved" : detail.status;
+                    });
+                } catch (error) {
+                    errorEl.textContent = "Could not fetch current leave details.";
+                }
+            }
+
+            let currentDate = startDate;
+            const leaveOptions = ["Paid Leave", "Unpaid Leave", "Paid Half Day (First Half)", "Paid Half Day (Second Half)", "Unpaid Half Day (First Half)", "Unpaid Half Day (Second Half)", "Sick Leave", "Not Approved"];
+            
+            let selectorsHtml = '';
+
+            while (currentDate.isSameOrBefore(endDate, "day")) {
+                const dateStr = currentDate.format("YYYY-MM-DD");
+                // For a new partial approval, default to the requested type. For editing a submitted decision, use the existing status.
+                const status = existingStatuses[dateStr] || request.leave_type; 
+                
+                const optionsHtml = leaveOptions.map(opt => 
+                    `<option value="${opt}" ${opt === status ? "selected" : ""}>${opt}</option>`
+                ).join("");
+
+                selectorsHtml += `<div class="flex items-center justify-between gap-4 p-2 bg-gray-50 rounded">
+                    <label class="text-sm font-medium">${currentDate.format("ddd, MMM D")}</label>
+                    <select data-date="${dateStr}" class="day-leave-type-selector rounded-md border-gray-300 shadow-sm p-1 text-sm">${optionsHtml}</select>
+                </div>`;
+                
+                currentDate = currentDate.add(1, "day");
+            }
+            daysContainer.innerHTML = selectorsHtml;
+        };
+
+        startDateInput.onchange = renderDateSelectors;
+        endDateInput.onchange = renderDateSelectors;
+        saveBtn.onclick = () => handleSubmitLeaveEdit(request.id, type);
+        document.getElementById("cancel-edit-leave-btn").onclick = () => modal.classList.add("hidden");
+
+        await renderDateSelectors(); // Initial render
+        modal.classList.remove("hidden");
+    }
+
+    async function handleSubmitLeaveEdit(requestId, type){
+        const reason = document.getElementById("edit-leave-reason-input").value.trim();
+        const errorEl = document.getElementById("edit-leave-error");
+        
+        if(!reason) {
+            errorEl.textContent="A reason is mandatory.";
+            return;
+        }
+        
+        const daysToUpdate = [];
+        document.querySelectorAll(".day-leave-type-selector").forEach(el => {
+            if("Not Approved" !== el.value) {
+                daysToUpdate.push({date: el.dataset.date, type: el.value});
+            }
+        });
+        
+        if("partial" === type && 0 === daysToUpdate.length) {
+            errorEl.textContent='You must approve at least one day. To reject all, use the main "Reject" button.';
+            return;
+        }
+        
+        const action = type === "edit" ? "edit_leave_decision" : "partially_approve_leave";
+        
+        try{
+            const result = await postData(action, {request_id: requestId, reason: reason, days: daysToUpdate});
+            document.getElementById("edit-leave-modal").classList.add("hidden");
+            await initializeDashboard();
+            showCustomAlert('Update Successful', result.message, false);
+        } catch(e) {
+            errorEl.textContent=e.message;
+        }
+    }
+    
+    // Details button now works correctly as the request ID is passed and looked up.
+    async function showAdminLeaveDetails(requestId){
+        const modal = document.getElementById("leave-details-modal");
+        const infoEl = document.getElementById("leave-details-info");
+        const daysContainer = document.getElementById("leave-details-days-container");
+        const request = leaveRequests.find(r => r.id === requestId);
+        
+        if(!request) {
+            console.error("Leave request not found for ID:", requestId);
+            return;
+        }
+        
+        infoEl.innerHTML = `<p><strong>User:</strong> ${request.full_name}</p><p><strong>Original Request:</strong> ${request.leave_type} from ${request.start_date} to ${request.end_date}</p>${request.admin_reason?`<p><strong>Admin Reason:</strong> ${request.admin_reason}</p>`:""}`;
+        daysContainer.innerHTML = "<p>Loading details...</p>";
+        modal.classList.remove("hidden");
+
+        try{
+            const details = (await postData("get_leave_request_details_admin",{request_id:request.id})).data;
+            daysContainer.innerHTML = "";
+            
+            if(details && details.length > 0) {
+                details.forEach(detail => {
+                    const statusColorClass = detail.status.toLowerCase().includes("leave") || detail.status.toLowerCase().includes("half day") ? "text-green-700" : "text-red-700";
+                    const dayHtml = `<div class="flex items-center justify-between gap-4 p-2 bg-gray-50 rounded">
+                        <span class="text-sm font-medium">${dayjs(detail.date).format("ddd, MMM D, YYYY")}</span>
+                        <span class="text-sm font-semibold ${statusColorClass}">${detail.status}</span>
+                    </div>`;
+                    daysContainer.innerHTML += dayHtml;
+                });
+            } else {
+                daysContainer.innerHTML = "<p>Could not load day-by-day details.</p>";
+            }
+        } catch(e) {
+            daysContainer.innerHTML = `<p class="text-red-500">Error: ${e.message}</p>`;
+        }
+    }
+    
+    function openEditModal(uid, d, cs, loginTime, logoutTime) {
+        const m = document.getElementById('edit-attendance-modal'), t = document.getElementById('edit-modal-title'), s = document.getElementById('edit-status'), sv = document.getElementById('save-edit-btn'), u = allEmployees.find(usr => usr.user_id.toLowerCase() === uid.toLowerCase());
+        const loginInput = document.getElementById('edit-login-time'), logoutInput = document.getElementById('edit-logout-time'), userIdInput = document.getElementById('edit-user-id'), dateInput = document.getElementById('edit-date');
+        if (!u) { console.error("User not found for edit:", uid); return; }
+        t.textContent = `Edit for ${u.full_name} on ${d}`; s.value = cs;
+        loginInput.value = loginTime === '--' ? '' : loginTime; logoutInput.value = (logoutTime === '--' || logoutTime.includes('(Auto)')) ? '' : logoutTime;
+        userIdInput.value = uid; dateInput.value = d; sv.onclick = () => handleUpdateAttendance(); m.classList.remove('hidden');
+    }
+    async function handleUpdateAttendance() {
+        const m = document.getElementById('edit-attendance-modal'), s = document.getElementById('edit-status'), e = document.getElementById('edit-error');
+        const ns = s.value, uid = document.getElementById('edit-user-id').value, d = document.getElementById('edit-date').value;
+        const loginTime = document.getElementById('edit-login-time').value, logoutTime = document.getElementById('edit-logout-time').value;
+        e.textContent = '';
+        try { 
+            const result = await postData('update_attendance', { user_id: uid, date: d, status: ns, login_time: loginTime, logout_time: logoutTime });
+            await refreshData(); 
+            renderReportView(); 
+            m.classList.add('hidden');
+            showCustomAlert('Update Successful', result.message, false);
+        } catch (err) { 
+            e.textContent = err.message || 'Failed.'; 
+        }
+    }
+
+    // --- Initialization ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabFromUrl = urlParams.get('tab');
+        if (tabFromUrl === 'leaves') { currentTab = 'leaves'; }
+        
+        checkDbConnection();
+        initializeDashboard(); 
+        
+        DOMElements.loginBtn.addEventListener('click', handleLogin);
+        DOMElements.passwordInput.addEventListener('keydown', (e) => { if (e.key === "Enter") handleLogin(); });
+        DOMElements.logoutBtn.addEventListener('click', handleLogout);
+        
+        document.querySelectorAll('.nav-btn').forEach(b => {
+            b.addEventListener('click', () => {
+                currentTab = b.dataset.tab;
+                renderCurrentTab();
+            });
+        });
+        
+        document.getElementById('user-filter').addEventListener('change', renderCurrentTab);
+        
+        document.getElementById('leave-details-close-btn').addEventListener('click', () => document.getElementById('leave-details-modal').classList.add('hidden'));
+        document.getElementById('cancel-edit-leave-btn').addEventListener('click', () => document.getElementById('edit-leave-modal').classList.add('hidden'));
+        document.getElementById('cancel-reject-btn').addEventListener('click', () => document.getElementById('reject-reason-modal').classList.add('hidden'));
+        document.getElementById('cancel-edit-btn').addEventListener('click', () => document.getElementById('edit-attendance-modal').classList.add('hidden'));
+    });
+</script>
+
+</body>
+</html>
