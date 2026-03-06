@@ -289,7 +289,8 @@
     dayjs.extend(dayjs_plugin_timezone);
 
     const appTimezone = 'Asia/Kolkata';
-    let allUsersData = {}, userList = [], charts = {}, leaveRequests = [], allEmployees = [];
+    let allUsersData = {}, userList = [], charts = {}, leaveRequests = [], allEmployees = [], userLocationPrefs = [];
+    let locationSettings = { global_enabled: 0, office_latitude: '', office_longitude: '', office_radius_meters: 150, half_day_first_half_cutoff_ist: '14:00:00', half_day_second_half_cutoff_ist: '18:30:00' };
     let currentTab = 'employees'; // Default tab
     let currentReportView = 'summary';
     let reportSort = { key: 'user', order: 'asc' };
@@ -384,16 +385,20 @@
         try {
             console.log("Refreshing data in background...");
             // Use Promise.all to fetch data concurrently
-            const [lr, ae, ad] = await Promise.all([
+            const [lr, ae, ad, ls, ul] = await Promise.all([
                 postData('get_all_leave_requests'),
                 postData('get_all_users_details'),
-                postData('get_admin_data')
+                postData('get_admin_data'),
+                postData('get_location_settings'),
+                postData('get_user_location_attendance_list')
             ]);
             leaveRequests = lr.data;
             allEmployees = ae.data;
             const normalizedAttendance = {};
             for (const key in ad.data.attendance) { normalizedAttendance[key.toLowerCase()] = ad.data.attendance[key]; }
             allUsersData.attendance = normalizedAttendance;
+            locationSettings = ls.data || locationSettings;
+            userLocationPrefs = (ul.data || []).map(r => ({ ...r, user_id: (r.user_id || '').toLowerCase() }));
 
             if (currentTab === 'leaves') renderLeavesPage();
             else if (currentTab === 'employees') renderEmployeeMasterPage();
@@ -414,11 +419,13 @@
         DOMElements.loginError.textContent = ''; // Clear login error before fetch
         try {
             // Fetch core data concurrently
-            const [sessionDataResult, userListResult, leaveRequestsResult, allEmployeesResult] = await Promise.all([
+            const [sessionDataResult, userListResult, leaveRequestsResult, allEmployeesResult, locationSettingsResult, userLocationPrefsResult] = await Promise.all([
                 postData('get_admin_data'),
                 postData('get_user_list'),
                 postData('get_all_leave_requests'),
-                postData('get_all_users_details') 
+                postData('get_all_users_details'),
+                postData('get_location_settings'),
+                postData('get_user_location_attendance_list')
             ]);
 
             const ad = sessionDataResult.data;
@@ -438,6 +445,8 @@
             allUsersData = ad;
             leaveRequests = leaveRequestsResult.data;
             allEmployees = allEmployeesResult.data.filter(filterJaymin);
+            locationSettings = locationSettingsResult.data || locationSettings;
+            userLocationPrefs = (userLocationPrefsResult.data || []).map(r => ({ ...r, user_id: (r.user_id || '').toLowerCase() }));
 
             // Update UI state
             DOMElements.app.style.display = 'block';
@@ -544,22 +553,85 @@
         else if (currentTab === 'employees') renderEmployeeMasterPage();
     }
     function renderEmployeeMasterPage() {
-        let content = `<div class="card"><div class="flex justify-between items-center mb-4 gap-4"><h2 class="text-2xl font-bold text-gray-800">Employee Master</h2><button class="btn btn-primary" onclick="openUserModal()">Add New Employee</button></div><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Full Name</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User ID</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+        const prefsByUser = {};
+        userLocationPrefs.forEach(p => { prefsByUser[(p.user_id || '').toLowerCase()] = p; });
+
+        const gs = locationSettings || {};
+        let content = `<div class="space-y-6">
+            <div class="card">
+                <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Location Attendance Control</h2>
+                    <button class="btn btn-primary" onclick="handleSaveLocationSettings()">Save Location Settings</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div class="flex items-center gap-2">
+                        <input id="loc-global-enabled" type="checkbox" ${parseInt(gs.global_enabled || 0) === 1 ? 'checked' : ''} class="h-4 w-4">
+                        <label for="loc-global-enabled" class="text-sm font-medium text-gray-700">Global Enable</label>
+                    </div>
+                    <div><label class="block text-sm text-gray-600">Office Latitude</label><input id="loc-office-lat" class="mt-1 block w-full rounded-md border-gray-300 p-2" value="${gs.office_latitude ?? ''}" placeholder="23.0225"></div>
+                    <div><label class="block text-sm text-gray-600">Office Longitude</label><input id="loc-office-lng" class="mt-1 block w-full rounded-md border-gray-300 p-2" value="${gs.office_longitude ?? ''}" placeholder="72.5714"></div>
+                    <div><label class="block text-sm text-gray-600">Radius (meters)</label><input id="loc-radius" type="number" class="mt-1 block w-full rounded-md border-gray-300 p-2" value="${gs.office_radius_meters ?? 150}"></div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div><label class="block text-sm text-gray-600">First-Half Cutoff</label><input id="loc-cutoff-first" type="time" class="mt-1 block w-full rounded-md border-gray-300 p-2" value="${(gs.half_day_first_half_cutoff_ist || '14:00:00').slice(0,5)}"></div>
+                        <div><label class="block text-sm text-gray-600">Second-Half Cutoff</label><input id="loc-cutoff-second" type="time" class="mt-1 block w-full rounded-md border-gray-300 p-2" value="${(gs.half_day_second_half_cutoff_ist || '18:30:00').slice(0,5)}"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card"><div class="flex justify-between items-center mb-4 gap-4"><h2 class="text-2xl font-bold text-gray-800">Employee Master</h2><button class="btn btn-primary" onclick="openUserModal()">Add New Employee</button></div><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Full Name</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User ID</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location Attendance</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
         const today = dayjs().format('YYYY-MM-DD');
         allEmployees.forEach(emp => {
-            const userTodayRecord = allUsersData.attendance[emp.user_id.toLowerCase()]?.[today];
+            const userKey = (emp.user_id || '').toLowerCase();
+            const userTodayRecord = allUsersData.attendance[userKey]?.[today];
+            const pref = prefsByUser[userKey] || { location_attendance_enabled: 0, background_tracking_required: 1 };
             const isAvailable = userTodayRecord && userTodayRecord.login_time && !userTodayRecord.logout_time;
             const statusDotClass = isAvailable ? 'blinking-dot bg-green-500' : 'bg-gray-400';
-            const userJson = JSON.stringify(emp).replace(/'/g, "\\'"); 
+            const userJson = JSON.stringify(emp); 
             
-            content += `<tr><td class="px-4 py-3"><span class="status-dot ${statusDotClass}" title="${isAvailable ? 'Clocked In' : 'Not Active'}"></span></td><td class="px-4 py-3 text-sm font-medium">${emp.full_name}</td><td class="px-4 py-3 text-sm text-gray-600">${emp.user_id}</td><td class="px-4 py-3 text-sm">${emp.is_admin == 1 ? 'Admin' : 'Employee'}</td><td class="px-4 py-3 text-sm whitespace-nowrap">
+            content += `<tr><td class="px-4 py-3"><span class="status-dot ${statusDotClass}" title="${isAvailable ? 'Clocked In' : 'Not Active'}"></span></td><td class="px-4 py-3 text-sm font-medium">${emp.full_name}</td><td class="px-4 py-3 text-sm text-gray-600">${emp.user_id}</td><td class="px-4 py-3 text-sm">${emp.is_admin == 1 ? 'Admin' : 'Employee'}</td><td class="px-4 py-3 text-sm"><div class="flex items-center gap-3"><label class="inline-flex items-center gap-2"><input id="loc-user-enable-${userKey}" type="checkbox" ${parseInt(pref.location_attendance_enabled || 0) === 1 ? 'checked' : ''}><span>Enabled</span></label><label class="inline-flex items-center gap-2"><input id="loc-user-bg-${userKey}" type="checkbox" ${parseInt(pref.background_tracking_required || 0) === 1 ? 'checked' : ''}><span>BG Req.</span></label><button class="text-green-700 font-semibold" onclick="handleSaveUserLocationPref('${encodeURIComponent(emp.user_id)}','${userKey}')">Save</button></div></td><td class="px-4 py-3 text-sm whitespace-nowrap">
                 <button class="text-blue-600 hover:text-blue-900 font-semibold mr-3" onclick='openUserModal("leave", JSON.parse(decodeURIComponent("${encodeURIComponent(userJson)}")))' >Leave Audit</button>
                 <button class="text-indigo-600 hover:text-indigo-900 font-semibold" onclick='openUserModal("settings", JSON.parse(decodeURIComponent("${encodeURIComponent(userJson)}")))' >Edit</button>
             </td></tr>`;
         });
-        DOMElements.dashboardContent.innerHTML = content + `</tbody></table></div></div>`;
+        DOMElements.dashboardContent.innerHTML = content + `</tbody></table></div></div></div>`;
     }
-    function openUserModal(panel, user = null) {
+
+    async function handleSaveLocationSettings() {
+        try {
+            const payload = {
+                global_enabled: document.getElementById('loc-global-enabled')?.checked ? 1 : 0,
+                office_latitude: parseFloat(document.getElementById('loc-office-lat')?.value || ''),
+                office_longitude: parseFloat(document.getElementById('loc-office-lng')?.value || ''),
+                office_radius_meters: parseInt(document.getElementById('loc-radius')?.value || '150', 10),
+                half_day_first_half_cutoff_ist: document.getElementById('loc-cutoff-first')?.value || '14:00',
+                half_day_second_half_cutoff_ist: document.getElementById('loc-cutoff-second')?.value || '18:30'
+            };
+            const result = await postData('save_location_settings', payload);
+            showCustomAlert('Saved', result.message, false);
+            await refreshData();
+        } catch (err) {
+            showCustomAlert('Save Failed', err.message || 'Unable to save location settings.', true);
+        }
+    }
+
+    async function handleSaveUserLocationPref(encodedUserId, domKey) {
+        const userId = decodeURIComponent(encodedUserId);
+        try {
+            const enabledEl = document.getElementById(`loc-user-enable-${domKey}`);
+            const bgEl = document.getElementById(`loc-user-bg-${domKey}`);
+            const payload = {
+                user_id: userId,
+                location_attendance_enabled: enabledEl?.checked ? 1 : 0,
+                background_tracking_required: bgEl?.checked ? 1 : 0
+            };
+            const result = await postData('set_user_location_attendance', payload);
+            showCustomAlert('Updated', result.message, false);
+            await refreshData();
+        } catch (err) {
+            showCustomAlert('Update Failed', err.message || 'Unable to save user location setting.', true);
+        }
+    }
+    
+function openUserModal(panel, user = null) {
         const modal = document.getElementById('user-modal');
         const title = document.getElementById('user-modal-title');
         const saveBtn = document.getElementById('user-modal-save-btn');

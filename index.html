@@ -93,6 +93,15 @@
                             </div>
                         </main>
                         <div class="card">
+                            <h2 class="text-xl font-semibold text-gray-700">Location Attendance</h2>
+                            <p id="location-policy-status" class="text-sm text-gray-500 mt-2">Checking policy...</p>
+                            <p id="location-live-status" class="text-sm text-gray-600 mt-1">Tracking: Off</p>
+                            <div class="grid grid-cols-1 gap-2 mt-4">
+                                <button id="location-tracking-btn" class="btn btn-primary" disabled>Start Location Tracking</button>
+                                <button id="location-ping-btn" class="btn btn-secondary" disabled>Send Location Ping</button>
+                            </div>
+                        </div>
+                        <div class="card">
                             <h2 class="text-xl font-semibold text-gray-700">Total Leaves Available</h2>
                             <p id="total-leaves-balance" class="text-3xl font-bold text-gray-800 mt-2">0</p>
                             <p class="text-gray-500 mt-1">Includes carry-over & earned</p>
@@ -362,6 +371,7 @@
         const appTimezone = 'Asia/Kolkata';
         
         let liveInterval = null, allAttendanceData = {}, userProfile = {}, charts = {}, currentReportView = 'daily', myLeaveRequests = [];
+        let locationPolicy = null, locationTrackingWatchId = null, locationLastPingAt = null;
 
         const DOMElements = {
             app: document.getElementById('app'),
@@ -412,7 +422,11 @@
             reportViewButtons: document.getElementById('report-view-buttons'),
             todaySummary: { work: document.getElementById('today-summary-work'), breakTaken: document.getElementById('today-summary-break-taken'), breakRem: document.getElementById('today-summary-break-rem'), },
             weekSummary: { work: document.getElementById('week-summary-work'), breakTaken: document.getElementById('week-summary-break-taken'), breakRem: document.getElementById('week-summary-break-rem'), },
-            monthSummary: { work: document.getElementById('month-summary-work'), breakTaken: document.getElementById('month-summary-break-taken'), breakRem: document.getElementById('month-summary-break-rem'), }
+            monthSummary: { work: document.getElementById('month-summary-work'), breakTaken: document.getElementById('month-summary-break-taken'), breakRem: document.getElementById('month-summary-break-rem'), },
+            locationPolicyStatus: document.getElementById('location-policy-status'),
+            locationLiveStatus: document.getElementById('location-live-status'),
+            locationTrackingBtn: document.getElementById('location-tracking-btn'),
+            locationPingBtn: document.getElementById('location-ping-btn')
         };
 
         function showModal(modalId, title, message) {
@@ -1069,6 +1083,132 @@
             XLSX.writeFile(wb, `Attendance_Report_${year}_${monthName}_${currentReportView}.xlsx`);
         }
 
+        async function fetchLocationPolicy() {
+            try {
+                const response = await fetch(`${API_URL}?action=get_location_policy`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({})
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Unable to fetch location policy.');
+                }
+                locationPolicy = result.data;
+                renderLocationControls();
+            } catch (error) {
+                locationPolicy = null;
+                if (DOMElements.locationPolicyStatus) DOMElements.locationPolicyStatus.textContent = `Policy load failed: ${error.message}`;
+            }
+        }
+
+        function renderLocationControls() {
+            if (!DOMElements.locationPolicyStatus) return;
+            if (!locationPolicy) {
+                DOMElements.locationPolicyStatus.textContent = 'Location policy unavailable.';
+                DOMElements.locationTrackingBtn.disabled = true;
+                DOMElements.locationPingBtn.disabled = true;
+                return;
+            }
+
+            const enabled = parseInt(locationPolicy.global_enabled || 0) === 1 && parseInt(locationPolicy.user_enabled || 0) === 1;
+            const radius = locationPolicy.office_radius_meters || 150;
+            DOMElements.locationPolicyStatus.textContent = enabled
+                ? `Enabled by admin • Radius ${radius}m`
+                : 'Disabled by admin for your account.';
+
+            DOMElements.locationTrackingBtn.disabled = !enabled;
+            DOMElements.locationPingBtn.disabled = !enabled;
+            if (!enabled) {
+                stopLocationTracking();
+            }
+        }
+
+        async function sendLocationEvent(position) {
+            if (!locationPolicy) return;
+            const payload = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy_m: position.coords.accuracy,
+                is_background: false,
+                device_time: new Date().toISOString()
+            };
+            const response = await fetch(`${API_URL}?action=location_event`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Location event failed.');
+            }
+            locationLastPingAt = dayjs().format('hh:mm:ss A');
+            DOMElements.locationLiveStatus.textContent = `Tracking: ${locationTrackingWatchId !== null ? 'On' : 'Off'} • Last Ping: ${locationLastPingAt} • Action: ${result.data?.action_taken || 'none'}`;
+            await fetchData(false);
+        }
+
+        function stopLocationTracking() {
+            if (locationTrackingWatchId !== null && navigator.geolocation) {
+                navigator.geolocation.clearWatch(locationTrackingWatchId);
+                locationTrackingWatchId = null;
+            }
+            if (DOMElements.locationTrackingBtn) {
+                DOMElements.locationTrackingBtn.textContent = 'Start Location Tracking';
+            }
+            if (DOMElements.locationLiveStatus) {
+                DOMElements.locationLiveStatus.textContent = `Tracking: Off${locationLastPingAt ? ` • Last Ping: ${locationLastPingAt}` : ''}`;
+            }
+        }
+
+        function startLocationTracking() {
+            if (!navigator.geolocation) {
+                showModal('message-modal', 'Location Not Supported', 'Your device/browser does not support geolocation.');
+                return;
+            }
+            if (locationTrackingWatchId !== null) {
+                stopLocationTracking();
+                return;
+            }
+            locationTrackingWatchId = navigator.geolocation.watchPosition(async (position) => {
+                try {
+                    await sendLocationEvent(position);
+                } catch (error) {
+                    console.error(error);
+                }
+            }, (error) => {
+                showModal('message-modal', 'Location Error', error.message || 'Unable to access location.');
+                stopLocationTracking();
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 10000,
+                timeout: 20000
+            });
+            DOMElements.locationTrackingBtn.textContent = 'Stop Location Tracking';
+            DOMElements.locationLiveStatus.textContent = 'Tracking: On • Waiting for GPS...';
+        }
+
+        async function handleLocationPing() {
+            if (!navigator.geolocation) {
+                showModal('message-modal', 'Location Not Supported', 'Your device/browser does not support geolocation.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                try {
+                    await sendLocationEvent(position);
+                } catch (error) {
+                    showModal('message-modal', 'Location Error', error.message || 'Failed to send location ping.');
+                }
+            }, (error) => {
+                showModal('message-modal', 'Location Error', error.message || 'Unable to capture current location.');
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 20000
+            });
+        }
+
         async function postData(action, body) {
             try {
                 const response = await fetch(`${API_URL}?action=${action}`, {
@@ -1107,6 +1247,7 @@
                     postData('get_all_data', {}),
                     postData('get_my_leave_requests', {})
                 ]);
+                await fetchLocationPolicy();
 
                 const data = attendanceResult.data;
                 allAttendanceData = data.attendance || {};
@@ -1170,6 +1311,7 @@
             }
         }
         async function handleLogout() {
+            stopLocationTracking();
             await postData('logout', {});
             DOMElements.app.style.display = 'none';
             DOMElements.userIdInput.value = '';
@@ -1190,6 +1332,8 @@
             DOMElements.logoutBtn.addEventListener('click', handleLogout);
             DOMElements.loginLogoutBtn.addEventListener('click', handleLoginLogout);
             DOMElements.breakBtn.addEventListener('click', () => postData('break', {}));
+            DOMElements.locationTrackingBtn.addEventListener('click', startLocationTracking);
+            DOMElements.locationPingBtn.addEventListener('click', handleLocationPing);
             DOMElements.openLeaveModalBtn.addEventListener('click', () => showModal('add-leave-modal'));
             DOMElements.leaveModalCloseBtn.addEventListener('click', () => hideModal('add-leave-modal'));
             DOMElements.modalCloseBtn.addEventListener('click', () => hideModal('message-modal'));

@@ -77,6 +77,42 @@ function check_admin() {
     }
 }
 
+function normalize_time_value($time, $default) {
+    if (!$time || !preg_match('/^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', $time)) {
+        return $default;
+    }
+    return strlen($time) === 5 ? $time . ':00' : $time;
+}
+
+function sanitize_location_setting_input($request_body) {
+    $global_enabled = !empty($request_body['global_enabled']) ? 1 : 0;
+    $office_latitude = isset($request_body['office_latitude']) ? floatval($request_body['office_latitude']) : null;
+    $office_longitude = isset($request_body['office_longitude']) ? floatval($request_body['office_longitude']) : null;
+    $office_radius_meters = isset($request_body['office_radius_meters']) ? intval($request_body['office_radius_meters']) : 150;
+
+    if ($global_enabled === 1) {
+        if ($office_latitude === null || $office_longitude === null) {
+            send_json_response(false, 'Office latitude and longitude are required when global location attendance is enabled.');
+        }
+        if ($office_latitude < -90 || $office_latitude > 90 || $office_longitude < -180 || $office_longitude > 180) {
+            send_json_response(false, 'Invalid office coordinates.');
+        }
+    }
+
+    if ($office_radius_meters < 20 || $office_radius_meters > 5000) {
+        send_json_response(false, 'Office radius must be between 20 and 5000 meters.');
+    }
+
+    return [
+        'global_enabled' => $global_enabled,
+        'office_latitude' => $office_latitude,
+        'office_longitude' => $office_longitude,
+        'office_radius_meters' => $office_radius_meters,
+        'half_day_first_half_cutoff_ist' => normalize_time_value($request_body['half_day_first_half_cutoff_ist'] ?? null, '14:00:00'),
+        'half_day_second_half_cutoff_ist' => normalize_time_value($request_body['half_day_second_half_cutoff_ist'] ?? null, '18:30:00')
+    ];
+}
+
 $action = $_GET['action'] ?? '';
 $request_body = json_decode(file_get_contents('php://input'), true);
 
@@ -146,6 +182,102 @@ switch ($action) {
         });
 
         send_json_response(true, "All user details fetched.", array_values($filtered_users));
+        break;
+
+    case 'get_location_settings':
+        check_admin();
+        $stmt = $db->prepare("SELECT id, global_enabled, office_latitude, office_longitude, office_radius_meters, half_day_first_half_cutoff_ist, half_day_second_half_cutoff_ist, updated_by, updated_at FROM location_attendance_settings WHERE id = 1 LIMIT 1");
+        if (!$stmt) send_json_response(false, "SQL Error (get_location_settings): " . $db->error);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $settings = $result->fetch_assoc();
+        $stmt->close();
+
+        if (!$settings) {
+            $settings = [
+                'id' => 1,
+                'global_enabled' => 0,
+                'office_latitude' => null,
+                'office_longitude' => null,
+                'office_radius_meters' => 150,
+                'half_day_first_half_cutoff_ist' => '14:00:00',
+                'half_day_second_half_cutoff_ist' => '18:30:00',
+                'updated_by' => null,
+                'updated_at' => null
+            ];
+        }
+        send_json_response(true, 'Location settings fetched.', $settings);
+        break;
+
+    case 'save_location_settings':
+        check_admin();
+        $clean = sanitize_location_setting_input($request_body ?? []);
+        $updated_by = $_SESSION['user_id'] ?? 'system';
+
+        $stmt = $db->prepare("INSERT INTO location_attendance_settings (id, global_enabled, office_latitude, office_longitude, office_radius_meters, half_day_first_half_cutoff_ist, half_day_second_half_cutoff_ist, updated_by) VALUES (1, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE global_enabled=VALUES(global_enabled), office_latitude=VALUES(office_latitude), office_longitude=VALUES(office_longitude), office_radius_meters=VALUES(office_radius_meters), half_day_first_half_cutoff_ist=VALUES(half_day_first_half_cutoff_ist), half_day_second_half_cutoff_ist=VALUES(half_day_second_half_cutoff_ist), updated_by=VALUES(updated_by)");
+        if (!$stmt) send_json_response(false, "SQL Error (save_location_settings): " . $db->error);
+        $stmt->bind_param(
+            "iddisss",
+            $clean['global_enabled'],
+            $clean['office_latitude'],
+            $clean['office_longitude'],
+            $clean['office_radius_meters'],
+            $clean['half_day_first_half_cutoff_ist'],
+            $clean['half_day_second_half_cutoff_ist'],
+            $updated_by
+        );
+
+        if (!$stmt->execute()) {
+            send_json_response(false, 'Failed to save location settings: ' . $stmt->error);
+        }
+        $stmt->close();
+        send_json_response(true, 'Location settings saved successfully.');
+        break;
+
+    case 'set_user_location_attendance':
+        check_admin();
+        $target_user_id = $request_body['user_id'] ?? '';
+        $location_attendance_enabled = !empty($request_body['location_attendance_enabled']) ? 1 : 0;
+        $background_tracking_required = !empty($request_body['background_tracking_required']) ? 1 : 0;
+        if (empty($target_user_id)) {
+            send_json_response(false, 'user_id is required.');
+        }
+
+        $stmt_user = $db->prepare("SELECT full_name FROM users WHERE user_id = ? LIMIT 1");
+        if (!$stmt_user) send_json_response(false, "SQL Error (set_user_location_attendance/check): " . $db->error);
+        $stmt_user->bind_param("s", $target_user_id);
+        $stmt_user->execute();
+        $stmt_user->bind_result($target_full_name);
+        $found = $stmt_user->fetch();
+        $stmt_user->close();
+        if (!$found) {
+            send_json_response(false, 'User not found.');
+        }
+        if (strcasecmp($target_full_name, EXCLUDED_USER_FULL_NAME) === 0) {
+            send_json_response(false, 'Cannot update location attendance for this user due to exclusion rules.');
+        }
+
+        $updated_by = $_SESSION['user_id'] ?? 'system';
+        $stmt = $db->prepare("INSERT INTO user_location_prefs (user_id, location_attendance_enabled, background_tracking_required, updated_by) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE location_attendance_enabled=VALUES(location_attendance_enabled), background_tracking_required=VALUES(background_tracking_required), updated_by=VALUES(updated_by)");
+        if (!$stmt) send_json_response(false, "SQL Error (set_user_location_attendance): " . $db->error);
+        $stmt->bind_param("siis", $target_user_id, $location_attendance_enabled, $background_tracking_required, $updated_by);
+        if (!$stmt->execute()) {
+            send_json_response(false, 'Failed to update user location preference: ' . $stmt->error);
+        }
+        $stmt->close();
+        send_json_response(true, 'User location attendance preference updated successfully.');
+        break;
+
+    case 'get_user_location_attendance_list':
+        check_admin();
+        $query = "SELECT u.user_id, u.full_name, COALESCE(ulp.location_attendance_enabled, 0) AS location_attendance_enabled, COALESCE(ulp.background_tracking_required, 1) AS background_tracking_required, ulp.updated_by, ulp.updated_at FROM users u LEFT JOIN user_location_prefs ulp ON u.user_id = ulp.user_id ORDER BY u.full_name ASC";
+        $result = $db->query($query);
+        if (!$result) send_json_response(false, "SQL Error (get_user_location_attendance_list): " . $db->error);
+        $rows = $result->fetch_all(MYSQLI_ASSOC);
+        $filtered = array_filter($rows, function($row) {
+            return strcasecmp($row['full_name'], EXCLUDED_USER_FULL_NAME) !== 0;
+        });
+        send_json_response(true, 'User location attendance list fetched.', array_values($filtered));
         break;
 
     case 'add_user':
